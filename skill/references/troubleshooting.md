@@ -95,14 +95,50 @@ node "$SKILL/scripts/bootstrap.mjs" --playwright-version 1.64.0 --install-browse
 
 ## 3. 浏览器问题
 
-### 窗口弹不出来 / `cannot open display`
+### 窗口弹不出来
 
-**默认是有头模式**，会真的弹出一个浏览器窗口。以下环境没有显示服务，
-有头模式必然启动失败：
+**默认是有头模式**，会真的弹出浏览器窗口。启动失败有两种原因，
+**处理方式相反，别搞混**。
+
+#### A. 沙箱禁止 Chromium 注册 Mach 端口（macOS）
+
+真实报错长这样：
+
+```
+ERROR:third_party/crashpad/crashpad/util/mach/bootstrap.cc:65]
+  bootstrap_check_in org.chromium.crashpad.child_port_handshake.…: Permission denied (1100)
+ERROR:…file_io_posix.cc:208]
+  open …/Chrome for Testing/Crashpad/settings.dat: Operation not permitted (1)
+Received signal 6
+
+FATAL:base/apple/mach_port_rendezvous_mac.cc:159]
+  Check failed: kr == KERN_SUCCESS.
+  bootstrap_check_in org.chromium.Chromium.MachPortRendezvousServer.…: Permission denied (1100)
+```
+
+**这是 macOS 沙箱（seatbelt）拦截了 Chromium 的 Mach 端口注册。**
+关键点：`MachPortRendezvousServer` 是**有头和无头都要用**的多进程 IPC ——
+所以**改成 `--headless` 一样会失败**，只会白跑一轮。
+
+处理（按优先级）：
+
+1. **给浏览器放行**。在受限沙箱（Codex、某些 agent 环境）里，向用户说明并申请
+   更宽的执行权限；批准后重跑，保持有头模式。
+2. **让用户在有桌面会话的普通终端里跑**。这是最可靠的 —— 沙箱外一切正常。
+3. 确实拿不到权限时，才降级 `--headless`，并**明确告诉用户测试人员将看不到执行过程**。
+
+> 这一条是血泪教训：早期版本的 SKILL.md 无差别地写「加 `--headless` 重试」，
+> 在 macOS 沙箱里导致 agent 先有头失败、再无头失败、最后才申请提权 —— 白跑一轮。
+
+#### B. 没有显示服务
+
+以下环境确实没有显示，有头必然失败，**但无头可以正常跑**：
 
 - CI runner（GitHub Actions 的 `ubuntu-latest` 等）
 - 无头服务器、容器
 - 通过 SSH 连的远程机器
+
+报错关键词：`cannot open display`、`Missing X server`、`no DISPLAY`。
 
 处理：加 `--headless`。
 
@@ -112,11 +148,21 @@ node "$SKILL/scripts/run.mjs" --run-dir "<runDir>" --headless --json
 
 或在 `e2e.config.json` 里设 `"headless": true`。
 
-常见报错关键词：`cannot open display`、`Missing X server`、
-`Target page, context or browser has been closed`、`Browser closed unexpectedly`。
+在 Linux CI 上也可以用 `xvfb-run`，但既然测试本来就不需要人看，
+直接 `--headless` 更简单也更快。
 
-在 Linux CI 上有另一种选择是 `xvfb-run`，但既然测试本来就不需要人看，
-直接用 `--headless` 更简单也更快。
+#### 怎么快速分辨
+
+`explore.mjs` 和 `run.mjs` 会给出诊断，直接看 `failureKind`：
+
+| `failureKind` | 含义 | `canRetryHeadless` |
+| --- | --- | --- |
+| `sandbox-mach` | A 类，沙箱限制 | `false` —— 换无头也没用 |
+| `no-display` | B 类，无显示服务 | `true` —— 换无头可以 |
+| `missing-browser` | 浏览器没下载 | `false` |
+| `unknown` | 未识别 | `false` |
+
+`canRetryHeadless` 为 `false` 时**不要**自己改成无头 —— 照 `hint` 做。
 
 > 内置演示 `demo.mjs` 会自动适配：检测到 `CI` 环境变量就无头，否则和真实运行
 > 一样弹窗口。想显式指定就用 `--headed` 或 `--headless`。

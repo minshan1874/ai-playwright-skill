@@ -244,7 +244,14 @@ export function renderReport(input) {
   lines.push('| 配置项 | 值 |');
   lines.push('| --- | --- |');
   lines.push(`| baseURL | ${cell(baseURL)} |`);
-  lines.push(`| 无头模式 | ${config.headless ? '是' : '否'} |`);
+  // State the consequence, not just the flag: could a human have watched?
+  lines.push(
+    `| 浏览器可见性 | ${
+      config.headless
+        ? '⚠️ 无头 —— 测试人员看不到执行过程，只能凭截图与 trace 回放'
+        : '✅ 有头 —— 执行时弹出浏览器窗口，过程可见'
+    } |`,
+  );
   lines.push(`| 视口 | ${config.viewport?.width ?? '—'}×${config.viewport?.height ?? '—'} |`);
   lines.push(`| 语言 / 时区 | ${cell(config.locale ?? '—')} / ${cell(config.timezoneId ?? '—')} |`);
   lines.push(`| 单用例超时 | ${duration(config.timeout)} |`);

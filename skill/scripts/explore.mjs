@@ -18,6 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { buildConfig, effectiveBaseURL } from './lib/config.mjs';
+import { diagnoseLaunchFailure, relevantExcerpt } from './lib/browser-errors.mjs';
 import { loadPlaywright } from './lib/deps.mjs';
 import { createReporter, parseArgs } from './lib/log.mjs';
 import { rankElements, renderOutlineMarkdown } from './lib/locators.mjs';
@@ -200,7 +201,27 @@ async function main() {
 
   reporter.note(`正在用 ${browserName} 探索 ${baseURL} …`);
 
-  const browser = await browserType.launch({ headless: config.headless, slowMo: config.slowMo });
+  let browser;
+  try {
+    browser = await browserType.launch({ headless: config.headless, slowMo: config.slowMo });
+  } catch (error) {
+    // A raw Playwright dump is hard to act on; classify it so the agent gets a
+    // precise instruction instead of guessing that --headless will help.
+    const diagnosis = diagnoseLaunchFailure(`${error?.message ?? ''}\n${error?.stack ?? ''}`);
+    reporter.note(`❌ 浏览器启动失败（${diagnosis.kind}）：${diagnosis.cause}`);
+    process.exit(
+      reporter.finish({
+        ok: false,
+        error: `浏览器启动失败：${diagnosis.cause}`,
+        hint: diagnosis.action,
+        failureKind: diagnosis.kind,
+        canRetryHeadless: diagnosis.canRetryHeadless,
+        launchMode: config.headless ? 'headless' : 'headed',
+        excerpt: relevantExcerpt(`${error?.message ?? ''}\n${error?.stack ?? ''}`),
+      }),
+    );
+  }
+
   const context = await browser.newContext({
     viewport: config.viewport,
     locale: config.locale,

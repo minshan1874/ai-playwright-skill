@@ -7,6 +7,44 @@
 
 ## [未发布]
 
+## [1.6.0] - 2026-09-19
+
+### 修复
+
+- **浏览器启动失败的处置建议是错的，会导致白跑一轮**。原文档无差别地写
+  「加 `--headless` 重试」。但在 macOS 沙箱里，Chromium 会因为
+  `bootstrap_check_in ... Permission denied (1100)` 起不来 —— 而
+  `MachPortRendezvousServer` 是**有头无头都要用**的多进程 IPC，
+  **换成无头一样会失败**。
+
+  真实后果：agent 先按默认有头启动 → 失败 → 按文档改无头 → 又失败 →
+  最后申请提权才跑通，白跑一轮，还要向用户解释为什么没弹窗口。
+
+  现在 `explore.mjs` / `run.mjs` 会区分两类失败，并在 JSON 里返回
+  `failureKind` 与 `canRetryHeadless`：
+
+  | `failureKind` | 原因 | `canRetryHeadless` |
+  | --- | --- | --- |
+  | `sandbox-mach` | 沙箱拦截 Mach 端口（有头无头都失败） | `false` |
+  | `no-display` | 没有显示服务（无头可用） | `true` |
+  | `missing-browser` | 浏览器没下载 | `false` |
+  | `unknown` | 未识别 | `false` |
+
+  文档同步改为按 `failureKind` 分流，并写明 `sandbox-mach` 应按「申请提权 / 到普通终端跑」
+  处理，而**不是**换无头。
+
+- **降级为无头必须事先告知用户**。有头是本 skill 的承诺（测试人员能看到执行过程），
+  改成无头等于承诺落空。文档现在要求：先说明原因并征得同意，再降级，并在报告中注明。
+
+- **报告不再只报一个布尔值**。`浏览器可见性` 一行直接写出后果：
+  「有头 —— 执行时弹出浏览器窗口，过程可见」或
+  「无头 —— 测试人员看不到执行过程，只能凭截图与 trace 回放」。
+
+### 说明
+
+本条来自一次真实使用反馈：agent 在 Codex 沙箱里跑，有头启动失败后按文档降级为无头，
+并主动向用户解释了原因。它的处置是克制的，问题出在文档给的建议本身。
+
 ## [1.5.0] - 2026-09-19
 
 ### 修复
@@ -197,7 +235,8 @@
 - 通过率的分母是实际执行的用例数，未自动化用例不计入，单独列出
 - 不做单元测试、接口测试、性能压测、视觉回归、CI 平台对接
 
-[未发布]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.5.0...HEAD
+[未发布]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.2.0...v1.3.0

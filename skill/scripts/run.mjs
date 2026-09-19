@@ -14,6 +14,7 @@ import { buildConfig, effectiveBaseURL } from './lib/config.mjs';
 import { createReporter, parseArgs } from './lib/log.mjs';
 import { PLAN_STATUS, readPlanStatus } from './lib/plan.mjs';
 import { runPaths, resolveHome } from './lib/paths.mjs';
+import { diagnoseLaunchFailure, relevantExcerpt } from './lib/browser-errors.mjs';
 import { renderPlaywrightConfig } from './lib/playwright-config.mjs';
 import { normalizeResults, verdictFor } from './lib/results.mjs';
 import { resolvePlaywrightCli, runCommand } from './lib/toolchain.mjs';
@@ -302,13 +303,25 @@ async function main() {
 
   // --- Normalize ------------------------------------------------------------
   if (!fs.existsSync(paths.jsonResults)) {
+    // Classify the failure: "the browser could not start" and "the tests failed"
+    // are different problems, and "switch to --headless" only helps one of them.
+    const combined = `${execution.stderr}\n${execution.stdout}`;
+    const diagnosis = diagnoseLaunchFailure(combined);
+    const unknown = diagnosis.kind === 'unknown';
+
     process.exit(
       reporter.finish({
         ok: false,
-        error: '测试未产生 JSON 结果文件，说明执行在用例开始前就失败了。',
-        hint:
-          '常见原因：浏览器未安装、配置文件错误、TypeScript 编译失败。' +
-          `原始输出末尾：\n${(execution.stderr || execution.stdout).split('\n').slice(-15).join('\n')}`,
+        error: unknown
+          ? '测试未产生 JSON 结果文件，说明执行在用例开始前就失败了。'
+          : `测试未能开始执行：${diagnosis.cause}`,
+        hint: unknown
+          ? '常见原因：配置文件错误、TypeScript 编译失败、用例文件有语法错误。'
+          : diagnosis.action,
+        failureKind: diagnosis.kind,
+        canRetryHeadless: diagnosis.canRetryHeadless,
+        launchMode: config.headless ? 'headless' : 'headed',
+        excerpt: relevantExcerpt(combined),
       }),
     );
   }

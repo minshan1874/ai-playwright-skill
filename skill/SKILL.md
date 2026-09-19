@@ -3,7 +3,7 @@ name: playwright-e2e
 description: 把被测网址和功能测试用例（Excel/CSV/Markdown）变成可执行的端到端自动化测试。自动准备 Playwright 环境、解析用例、输出测试计划并等待用户确认，确认后探索真实页面、固化为 Playwright 用例、执行测试，最终产出 Markdown 测试报告、Playwright HTML 报告与 JSON 结果。适用于功能验证、回归测试和上线前检查。
 whenToUse: 当用户提供被测网址和功能测试用例（或要求「帮我测一下这个网站/这个功能」），需要生成测试计划、自动执行端到端测试并输出测试报告时使用。
 metadata:
-  version: 1.5.0
+  version: 1.6.0
   requires:
     node: ">=20"
 ---
@@ -113,8 +113,19 @@ PLAYWRIGHT_E2E_HOME="<可写目录>" node "$SKILL/scripts/bootstrap.mjs"
 嫌快可以加 `--slow-mo`；不想弹窗就用 `--headless`。无头模式下报告里的截图和 trace
 仍然能逐步回放（若配置启用了截图与 trace）。
 
-如果浏览器启动失败并提示 `cannot open display` 或类似错误，说明当前环境没有
-显示服务 —— 加 `--headless` 重试，不要反复重跑。
+**启动失败时先分清是哪一种 —— 两种情况处理方式相反：**
+
+| 报错特征 | 原因 | 怎么办 |
+| --- | --- | --- |
+| `bootstrap_check_in ... Permission denied (1100)`<br>`MachPortRendezvousServer`<br>`crashpad ... Permission denied` | **沙箱禁止 Chromium 注册 Mach 端口**（macOS seatbelt）。有头无头共用同一套多进程 IPC，**两种模式都会失败** | **不要改成 `--headless`，那样不会成功。** 向用户说明并申请更宽的执行权限，或让用户在有桌面会话的普通终端里跑 |
+| `cannot open display` / `Missing X server` | 没有显示服务（Linux 无 X、SSH 远程） | 加 `--headless` 重试 —— 这个场景下无头确实可用 |
+
+`explore.mjs` 与 `run.mjs` 会返回 `failureKind` 和 `canRetryHeadless`，
+照它们给的 `hint` 做即可，不要自己猜。
+
+**降级必须告知用户，不能悄悄做。** 有头是本 skill 的承诺：测试人员要能看到执行过程。
+改成无头就等于承诺落空 —— 必须先告诉用户「当前环境无法弹窗口，测试人员将看不到
+执行过程」，说明原因，得到同意后再降级，并在最终报告里注明。
 
 ### 阶段 1 — 解析用例并生成测试计划
 

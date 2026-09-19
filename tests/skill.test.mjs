@@ -243,6 +243,37 @@ describe('repository hygiene', () => {
     );
   });
 
+  it('distinguishes sandbox Mach failures from missing-display failures', () => {
+    // Blanket advice to "retry with --headless" costs a wasted round trip under
+    // a macOS sandbox, where both modes fail for the same Mach-IPC reason.
+    const skill = fs.readFileSync(SKILL_FILE, 'utf8');
+    assert.match(skill, /bootstrap_check_in|MachPortRendezvousServer/, 'SKILL.md 未给出沙箱故障的报错特征');
+    assert.match(skill, /不要改成 `--headless`|不要.*--headless/, 'SKILL.md 必须警告沙箱场景下换无头无用');
+    assert.match(skill, /cannot open display/, 'SKILL.md 仍须覆盖无显示服务的情况');
+    assert.match(skill, /failureKind/, 'SKILL.md 应告诉 agent 用 failureKind 分流');
+  });
+
+  it('requires telling the user before degrading to headless', () => {
+    const skill = fs.readFileSync(SKILL_FILE, 'utf8');
+    assert.match(skill, /降级必须告知用户|先告诉用户/, '降级为无头前必须先告知用户');
+  });
+
+  it('ships the launch-failure doctor both scripts rely on', () => {
+    const doctor = path.join(SKILL_DIR, 'scripts', 'lib', 'browser-errors.mjs');
+    assert.ok(fs.existsSync(doctor));
+    for (const script of ['explore.mjs', 'run.mjs']) {
+      const text = fs.readFileSync(path.join(SKILL_DIR, 'scripts', script), 'utf8');
+      assert.match(text, /diagnoseLaunchFailure/, `${script} 未使用启动失败诊断`);
+      assert.match(text, /canRetryHeadless/, `${script} 未返回 canRetryHeadless`);
+    }
+  });
+
+  it('states in the report whether a human could watch', () => {
+    const report = fs.readFileSync(path.join(SKILL_DIR, 'scripts', 'lib', 'report.mjs'), 'utf8');
+    assert.match(report, /浏览器可见性/);
+    assert.match(report, /看不到执行过程/, '无头时必须写明测试人员看不到过程');
+  });
+
   it('forbids editing an installed copy in place', () => {
     // An agent editing ~/.codex/skills/*/SKILL.md forks the copy from the source:
     // the version number starts lying and the next --update silently reverts it.

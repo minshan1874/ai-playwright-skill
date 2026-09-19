@@ -1,0 +1,26 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.md]
+# Markdown 里行尾两个空格是「硬换行」，不要裁掉
+trim_trailing_whitespace = false
+
+[*.{sh,bash}]
+indent_size = 2
+
+[*.{yml,yaml}]
+indent_size = 2
+
+[Makefile]
+indent_style = tab
+
+[*.{xlsx,xls}]
+# 二进制文件，编辑器不要尝试规范化
+insert_final_newline = false

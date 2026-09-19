@@ -1,0 +1,41 @@
+# 统一换行符，避免跨平台 diff 噪音
+* text=auto eol=lf
+
+# ─── 必须保持 LF ─────────────────────────────────────────────────────
+*.sh   text eol=lf
+*.mjs  text eol=lf
+*.js   text eol=lf
+*.ts   text eol=lf
+*.json text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.md   text eol=lf
+
+# ─── 需要 CRLF 的脚本 ────────────────────────────────────────────────
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# ─── 二进制文件：不做行尾转换，不参与文本 diff ───────────────────────
+*.xlsx binary
+*.xls  binary
+*.zip  binary
+*.gz   binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.pdf  binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+
+# ─── GitHub 展示优化 ─────────────────────────────────────────────────
+# Excel 模板是脚本生成的，在 diff 里折叠掉
+skill/assets/case-template.xlsx linguist-generated=true -diff
+# 参考文档不计入语言统计
+skill/references/* linguist-documentation=true
+# 演示站是测试夹具，不计入语言统计
+skill/assets/demo/* linguist-vendored=true

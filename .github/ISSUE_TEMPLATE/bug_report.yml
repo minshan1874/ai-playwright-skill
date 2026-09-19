@@ -1,0 +1,118 @@
+name: Bug 报告
+description: 报告一个缺陷或异常行为
+title: "[Bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请尽量填完整 —— 尤其是**环境自检输出**和**出错阶段的完整 JSON 输出**，
+        这两项能大幅缩短定位时间。
+
+        > ⚠️ **提交前请脱敏**：删掉日志里的账号、密码、Cookie、token、内网域名和真实业务数据。
+
+  - type: dropdown
+    id: phase
+    attributes:
+      label: 出错的阶段
+      description: 对应 SKILL.md 里的阶段编号
+      options:
+        - 阶段 0 — 环境准备（bootstrap.mjs）
+        - 阶段 1 — 解析用例 / 生成计划（new-run / parse-cases / make-plan）
+        - 阶段 2 — 用户确认（confirm-plan.mjs）
+        - 阶段 3 — 探索页面 / 固化用例（explore.mjs）
+        - 阶段 4 — 执行测试（run.mjs）
+        - 阶段 5 — 输出报告（report.mjs）
+        - 安装 / 卸载（install.sh / uninstall.sh）
+        - 不确定
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 实际发生了什么
+      description: 包括完整的报错信息。脚本的 `error` 与 `hint` 字段请原样粘贴。
+      placeholder: |
+        运行 node scripts/explore.mjs ... 后返回：
+        {"ok":false,"error":"...","hint":"..."}
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 你期望发生什么
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 具体的命令序列。涉及被测网站时请用公开站点或脱敏后的描述。
+      placeholder: |
+        1. node skill/scripts/bootstrap.mjs --check --json
+        2. node skill/scripts/new-run.mjs --url https://example.com --json
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: bootstrap-check
+    attributes:
+      label: 环境自检输出
+      description: 请粘贴 `node <skill>/scripts/bootstrap.mjs --check --json` 的完整输出
+      render: json
+    validations:
+      required: false
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node 版本
+      description: 运行 `node -v`
+      placeholder: v22.18.0
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: 操作系统
+      placeholder: macOS 15.3 (arm64) / Ubuntu 24.04 / Windows 11
+    validations:
+      required: true
+
+  - type: input
+    id: skill-version
+    attributes:
+      label: skill 版本或 commit
+      description: 见 SKILL.md frontmatter 的 metadata.version，或 `git rev-parse --short HEAD`
+      placeholder: 1.0.0
+    validations:
+      required: false
+
+  - type: dropdown
+    id: case-format
+    attributes:
+      label: 用例文件格式
+      options:
+        - 不涉及（环境或其它问题）
+        - Excel (.xlsx)
+        - CSV (.csv)
+        - Markdown 表格
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: 确认事项
+      options:
+        - label: 我已删除日志中的账号、密码、Cookie、token 和内网信息
+          required: true
+        - label: 我已搜索过现有 issue，确认这不是重复问题
+          required: true
+        - label: 我已尝试 references/troubleshooting.md 里的排查步骤
+          required: false

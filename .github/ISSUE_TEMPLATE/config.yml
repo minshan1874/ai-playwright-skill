@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用问题与排查
+    url: https://github.com/minshan1874/ai-playwright-skill/blob/main/skill/references/troubleshooting.md
+    about: 沙箱拒绝、依赖安装失败、浏览器缺失、页面打不开等问题，先看这份排查手册
+  - name: 用例表格式说明
+    url: https://github.com/minshan1874/ai-playwright-skill/blob/main/skill/references/case-format.md
+    about: 表头对不上、解析报错、多值写法等，见这份文档

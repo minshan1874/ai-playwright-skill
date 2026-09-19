@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────
+  # 单元测试：零依赖，秒级完成，覆盖解析 / 配置 / 门禁 / 报告 / 定位器
+  # ───────────────────────────────────────────────────────────────────
+  unit:
+    name: 单元测试 (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: 运行单元测试
+        run: npm test
+
+      - name: 校验 skill 清单与脚本语法
+        run: node --test tests/skill.test.mjs
+
+  # ───────────────────────────────────────────────────────────────────
+  # 离线全链路：装依赖 → 起本地演示站 → 解析 / 计划 / 确认 / 探索 /
+  # 执行 / 报告。demo.mjs 会断言结果必须恰好是 3 通过 / 1 失败 /
+  # 1 未自动化，否则以非零退出码结束。
+  # ───────────────────────────────────────────────────────────────────
+  demo:
+    name: 离线全链路演示
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      # 把运行目录放进工作区，方便收集产物
+      PLAYWRIGHT_E2E_HOME: ${{ github.workspace }}/.e2e-ci
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 缓存 Playwright 浏览器
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ms-playwright
+            ~/Library/Caches/ms-playwright
+          key: pw-${{ runner.os }}-${{ runner.arch }}-1.63.0
+
+      - name: 环境自检
+        run: node skill/scripts/bootstrap.mjs --check --json
+
+      - name: 跑通全链路
+        run: node skill/scripts/demo.mjs --json
+
+      - name: 上传测试报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-report-${{ matrix.os }}
+          path: |
+            .e2e-ci/runs/*/report.md
+            .e2e-ci/runs/*/results-summary.json
+            .e2e-ci/runs/*/explore/outline.md
+            .e2e-ci/runs/*/playwright-report/
+          if-no-files-found: warn
+          retention-days: 7

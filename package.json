@@ -1,0 +1,39 @@
+{
+  "name": "ai-playwright-skill",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DSH skill: AI-driven end-to-end testing with Playwright — turn a URL and a spreadsheet of test cases into a confirmed test plan, an executed suite, and a traceable test report.",
+  "keywords": [
+    "dsh",
+    "dsh-skill",
+    "playwright",
+    "e2e",
+    "end-to-end-testing",
+    "test-automation",
+    "qa",
+    "ai-agent",
+    "claude-skill"
+  ],
+  "license": "MIT",
+  "author": "minshan1874",
+  "homepage": "https://github.com/minshan1874/ai-playwright-skill#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/minshan1874/ai-playwright-skill.git"
+  },
+  "bugs": {
+    "url": "https://github.com/minshan1874/ai-playwright-skill/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "test:watch": "node --test --watch tests/*.test.mjs",
+    "demo": "node skill/scripts/demo.mjs",
+    "template": "node skill/scripts/make-template.mjs",
+    "bootstrap": "node skill/scripts/bootstrap.mjs",
+    "install-skill": "./install.sh"
+  }
+}

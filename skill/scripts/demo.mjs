@@ -26,15 +26,26 @@ const { json, flags } = parseArgs(process.argv.slice(2));
 const reporter = createReporter({ json, script: 'demo' });
 
 /**
+ * Whether this process is running on a CI runner.
+ *
+ * `CI` is set by GitHub Actions, GitLab, CircleCI and most others. Those runners
+ * have no display, so a headed browser cannot start there.
+ * @returns {boolean}
+ */
+function isCI() {
+  return process.env.CI === 'true' || process.env.CI === '1';
+}
+
+/**
  * Browser-visibility flags forwarded to the explore and run phases.
  *
- * The demo defaults to headless even though the skill's own default is headed,
- * because CI runners have no display. Run `node scripts/demo.mjs --headed` to
- * watch it on your own machine.
+ * The demo follows the skill's own default so that what a new user sees first
+ * matches what a real run does: headed on a normal machine, headless on CI.
+ * `--headed` / `--headless` / `--slow-mo` override that.
  */
 const modeFlags = [];
-if (flags.headed === true) modeFlags.push('--headed');
-else modeFlags.push('--headless');
+if (flags.headless === true || (flags.headed !== true && isCI())) modeFlags.push('--headless');
+else modeFlags.push('--headed');
 if (typeof flags['slow-mo'] === 'string') modeFlags.push('--slow-mo', flags['slow-mo']);
 
 const CONTENT_TYPES = {

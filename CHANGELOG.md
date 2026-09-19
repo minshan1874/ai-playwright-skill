@@ -7,6 +7,19 @@
 
 ## [未发布]
 
+## [1.3.0] - 2026-09-19
+
+### 修复
+
+- **演示的浏览器可见性与真实运行不一致**。`demo.mjs` 之前无条件无头，而真实运行
+  默认有头。新用户按 README 最先跑的就是 `npm run demo`，结果**首次体验恰好看不到
+  窗口**，和之后真实使用时看到的行为对不上。现在演示遵循同一默认：普通机器弹窗口，
+  检测到 `CI` 环境变量（GitHub Actions、GitLab、CircleCI 等都会设置）则无头。
+  `--headed` / `--headless` 仍可显式覆盖。
+
+  发现方式：从 GitHub 全新克隆、在隔离环境里模拟新用户安装并运行，
+  对比两次运行的 `headless` 取值时暴露。
+
 ## [1.2.0] - 2026-09-19
 
 ### 新增
@@ -122,7 +135,8 @@
 - 通过率的分母是实际执行的用例数，未自动化用例不计入，单独列出
 - 不做单元测试、接口测试、性能压测、视觉回归、CI 平台对接
 
-[未发布]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.2.0...HEAD
+[未发布]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.0.0...v1.0.1

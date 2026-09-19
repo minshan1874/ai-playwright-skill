@@ -3,7 +3,7 @@ name: playwright-e2e
 description: 把被测网址和功能测试用例（Excel/CSV/Markdown）变成可执行的端到端自动化测试。自动准备 Playwright 环境、解析用例、输出测试计划并等待用户确认，确认后探索真实页面、固化为 Playwright 用例、执行测试，最终产出 Markdown 测试报告、Playwright HTML 报告与 JSON 结果。适用于功能验证、回归测试和上线前检查。
 whenToUse: 当用户提供被测网址和功能测试用例（或要求「帮我测一下这个网站/这个功能」），需要生成测试计划、自动执行端到端测试并输出测试报告时使用。
 metadata:
-  version: 1.2.0
+  version: 1.3.0
   requires:
     node: ">=20"
 ---
@@ -77,6 +77,8 @@ PLAYWRIGHT_E2E_HOME="<可写目录>" node "$SKILL/scripts/bootstrap.mjs"
 | （默认） | 弹出窗口，用户可见 | 正常情况 |
 | `--slow-mo 500` | 每个操作放慢 500ms，肉眼跟得上 | 用户说「太快了看不清」 |
 | `--headless` | 不弹窗口 | 无显示环境：CI、服务器、远程机器 |
+
+内置演示 `demo.mjs` 遵循同一默认：普通机器上弹窗口，检测到 `CI` 环境变量则无头。
 
 **你必须主动告诉用户这件事**，并在计划阶段就说明：测试会打开浏览器窗口；
 嫌快可以加 `--slow-mo`；不想弹窗就用 `--headless`，报告里的截图和 trace

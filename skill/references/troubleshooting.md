@@ -118,8 +118,8 @@ node "$SKILL/scripts/run.mjs" --run-dir "<runDir>" --headless --json
 在 Linux CI 上有另一种选择是 `xvfb-run`，但既然测试本来就不需要人看，
 直接用 `--headless` 更简单也更快。
 
-> 内置演示 `demo.mjs` 已经默认无头，不受影响。想在自己机器上看它跑，
-> 用 `node skill/scripts/demo.mjs --headed`。
+> 内置演示 `demo.mjs` 会自动适配：检测到 `CI` 环境变量就无头，否则和真实运行
+> 一样弹窗口。想显式指定就用 `--headed` 或 `--headless`。
 
 ### 窗口弹得太快，看不清
 

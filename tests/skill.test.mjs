@@ -205,13 +205,15 @@ describe('repository hygiene', () => {
     );
   });
 
-  it('keeps the demo headless by default, since CI has no display', () => {
-    // The skill defaults to headed so a human can watch, but the demo must also
-    // run on runners with no display. It therefore forces headless unless the
-    // operator explicitly asks for a window.
+  it('makes the demo match the skill default, except on CI', () => {
+    // A new user's first command is `npm run demo`. If that is headless while
+    // real runs are headed, the first impression contradicts the real behaviour.
+    // CI has no display, so it must still go headless there.
     const demo = fs.readFileSync(path.join(SKILL_DIR, 'scripts', 'demo.mjs'), 'utf8');
-    assert.match(demo, /modeFlags\.push\('--headless'\)/, 'demo 默认必须以 --headless 运行');
-    assert.match(demo, /modeFlags\.push\('--headed'\)/, 'demo 应支持 --headed 让人观看');
+    assert.match(demo, /modeFlags\.push\('--headless'\)/, 'demo 需要无头分支');
+    assert.match(demo, /modeFlags\.push\('--headed'\)/, 'demo 需要默认有头分支');
+    assert.match(demo, /process\.env\.CI/, 'demo 必须检测 CI 环境');
+    assert.match(demo, /flags\.headed !== true && isCI\(\)/, 'CI 时无头，其余情况有头');
   });
 
   it('documents headed mode in the skill instructions', () => {

@@ -410,6 +410,61 @@ describe('repository hygiene', () => {
     assert.deepEqual(missing, [], `CHANGELOG 缺少链接定义：${missing.join(', ')}`);
   });
 
+  it('never documents a shell flag the scripts do not accept', () => {
+    // The README's one-line "ask the AI to install it" prompt hardcodes flags like
+    // `--all`. If a flag is renamed or dropped, that prompt silently breaks — and
+    // the user has no way to tell until the install fails.
+    /** Flags a script actually parses, read from its `case` arms. */
+    const accepted = (script) => {
+      const text = fs.readFileSync(path.join(ROOT, script), 'utf8');
+      const flags = new Set();
+      for (const arm of text.matchAll(/^\s*((?:-[a-zA-Z]|--[a-z-]+)(?:\|(?:-[a-zA-Z]|--[a-z-]+))*)\)/gm)) {
+        for (const one of arm[1].split('|')) flags.add(one.trim());
+      }
+      return flags;
+    };
+
+    const supported = {
+      'install.sh': accepted('install.sh'),
+      'uninstall.sh': accepted('uninstall.sh'),
+    };
+    for (const [script, flags] of Object.entries(supported)) {
+      assert.ok(flags.has('--help'), `${script} 未声明 --help`);
+    }
+
+    // Every document a user or an agent might copy a command out of.
+    const walk = (dir) =>
+      fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+        if (['.git', 'node_modules', 'runs'].includes(entry.name)) return [];
+        const full = path.join(dir, entry.name);
+        return entry.isDirectory() ? walk(full) : [full];
+      });
+    const docs = walk(ROOT).filter((file) => /\.(md)$/.test(file));
+
+    const problems = [];
+    for (const file of docs) {
+      const text = fs.readFileSync(file, 'utf8');
+      for (const match of text.matchAll(/(install|uninstall)\.sh\s+((?:--[a-z-]+\s*)+)/g)) {
+        const script = `${match[1]}.sh`;
+        for (const flag of match[2].trim().split(/\s+/)) {
+          if (!supported[script].has(flag)) {
+            problems.push(`${path.relative(ROOT, file)} 使用了 ${script} ${flag}，但脚本不认识该参数`);
+          }
+        }
+      }
+    }
+    assert.deepEqual(problems, [], problems.join('\n'));
+  });
+
+  it('points the AI install prompt at a path the script writes to', () => {
+    // The prompt tells the AI to clone to ~/ai-playwright-skill and run --all;
+    // both halves must stay true.
+    const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+    assert.match(readme, /git clone https:\/\/github\.com\/minshan1874\/ai-playwright-skill/, '缺少克隆地址');
+    assert.match(readme, /\.\/install\.sh --all/, 'AI 安装提示词应使用 --all');
+    assert.match(readme, /新开一个[^\n]{0,10}会话/, '必须提醒新开会话才生效');
+  });
+
   it('links the CI workflow from the README', () => {
     // A live CI badge beats a hardcoded test count, which goes stale silently.
     const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');

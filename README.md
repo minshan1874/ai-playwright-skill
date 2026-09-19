@@ -16,21 +16,37 @@
 
 ### 第 1 步 · 安装（只需一次）
 
-打开终端，复制粘贴这两行：
+**不用自己开终端 —— 直接把下面这段话发给 AI 就行：**
 
-```bash
-git clone https://github.com/minshan1874/ai-playwright-skill.git
-cd ai-playwright-skill && ./install.sh
+```
+帮我安装 playwright-e2e 这个 skill：
+https://github.com/minshan1874/ai-playwright-skill
+
+请这样做：
+1. git clone 到 ~/ai-playwright-skill
+2. cd 进去执行 ./install.sh --all
+3. 装完把安装路径和版本告诉我，我以后升级要用
+
+装好我会新开一个会话来用它。
 ```
 
-看到 `✅ 已安装到：...` 就成功了。
+AI 会自己跑完，你只要等它回话。装完**新开一个 AI 会话**，它就能看到这个 skill 了。
 
-- 用 **Codex** 的话，把最后一行换成 `./install.sh --codex`
-- 两个都用？`./install.sh --all`
+> 如果 AI 说没有网络权限或拒绝执行命令，就用下面的方式自己装一次。
+
+**自己装（或者你想控制装到哪里）：**
+
+```bash
+git clone https://github.com/minshan1874/ai-playwright-skill.git ~/ai-playwright-skill
+cd ~/ai-playwright-skill && ./install.sh
+```
+
+- 用 **Codex** → 把最后一行换成 `./install.sh --codex`
+- 两个都用 → `./install.sh --all`
 - **Windows** 请在 Git Bash 或 WSL 里执行
-- 以后升级只需 `git pull && ./install.sh --update`
+- 以后升级 → `cd ~/ai-playwright-skill && git pull && ./install.sh --update`
 
-装完**新开一个 AI 会话**，它就能看到这个 skill 了。
+---
 
 ### 第 2 步 · 把网址和用例丢给 AI
 

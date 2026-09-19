@@ -86,6 +86,19 @@ describe('SKILL.md manifest', () => {
     assert.ok(parsed.data.whenToUse, 'frontmatter 缺少 whenToUse');
   });
 
+  it('keeps metadata.version in sync with package.json', () => {
+    // A stale version string is how a copy looks updated while still running old
+    // code — the frontmatter says 1.1.0 but the scripts are 1.0.x.
+    const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+    const declared = /^metadata:[\s\S]*?^\s+version:\s*(\S+)/m.exec(raw);
+    assert.ok(declared, 'SKILL.md 的 metadata 缺少 version');
+    assert.equal(
+      declared[1],
+      manifest.version,
+      `SKILL.md 声明 ${declared[1]}，package.json 是 ${manifest.version}`,
+    );
+  });
+
   it('does not disable model or user invocation', () => {
     assert.notEqual(parsed.data['disable-model-invocation'], 'true');
     assert.notEqual(parsed.data['user-invocable'], 'false');

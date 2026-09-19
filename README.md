@@ -77,10 +77,12 @@ npm run demo
 ### 全局安装（推荐）
 
 ```bash
-./install.sh
+./install.sh            # DSH → ~/.dsh/skills/playwright-e2e/
+./install.sh --codex    # Codex → ~/.codex/skills/playwright-e2e/
+./install.sh --all      # 两个都装
 ```
 
-装到 `~/.dsh/skills/playwright-e2e/`，之后**任何项目、任何会话**都能用。
+装好后**任何项目、任何会话**都能用。
 
 ### 只给当前项目装
 
@@ -94,13 +96,27 @@ npm run demo
 
 | 命令 | 作用 |
 | --- | --- |
+| `./install.sh --status` | **检查各处副本是否为最新版**，不安装 |
 | `./install.sh --link` | 软链接到本仓库，改代码立即生效（开发用） |
 | `./install.sh --force` | 覆盖已存在的安装 |
 | `./install.sh --target <目录>` | 装到指定目录 |
 | `./uninstall.sh` | 移除 skill（保留运行数据） |
 | `./uninstall.sh --purge` | 连同依赖、历史记录、登录态一起删除 |
 
-安装后**新开一个 DSH 会话**即可（skill 目录会被自动扫描，不需要重启服务）。
+### 更新已安装的版本
+
+```bash
+git pull
+./install.sh --force --all
+./install.sh --status        # 确认各处都是最新版
+```
+
+> **升级后务必用 `--status` 确认。** 手工拷贝（而不是跑 `install.sh`）很容易只更新了
+> `SKILL.md` 却留下旧脚本，结果 skill「看起来是新版、实际跑的是旧代码」——
+> 行为会和新文档对不上。`--status` 会按 frontmatter 的 `name` 扫描所有技能根目录，
+> 连装错目录名的副本也能找出来。
+
+安装后**新开一个会话**即可（skill 目录会被自动扫描，不需要重启服务）。
 
 ---
 

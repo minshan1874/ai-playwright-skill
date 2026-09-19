@@ -7,6 +7,31 @@
 
 ## [未发布]
 
+## [1.2.0] - 2026-09-19
+
+### 新增
+
+- **`install.sh --codex`**：安装到 `~/.codex/skills/playwright-e2e/`。此前脚本只认
+  DSH 路径，在 Codex 里用的人只能手工拷贝 —— 而这正是「版本混杂」的根源。
+  `--all` 可同时装到 DSH 和 Codex。
+- **`install.sh --status`**：检查所有技能根目录下本 skill 的副本版本，
+  并标出脚本与源码不一致的副本。它按 SKILL.md frontmatter 的 `name` 扫描，
+  因此**装错目录名**（如 `skills/skill/`）的副本也能被找出来。
+  同一根目录下存在多个副本时会告警 —— 那种情况下加载哪一份是不确定的。
+
+### 修复
+
+- **`SKILL.md` 的 `metadata.version` 没有跟着 `package.json` 一起升**。
+  1.1.0 的代码配着 1.0.0 的版本号，让「这个副本是新是旧」无法从版本号判断。
+  已加测试锁定两者一致。
+- **手工拷贝会得到「看起来是新的、实际是旧的」副本**：只改了 `SKILL.md`
+  的版本号却留着旧脚本。现在 `--status` 会同时比对脚本内容与版本号并明确告警。
+
+### 说明
+
+如果你曾手工把 skill 拷进 Codex，请用 `./install.sh --force --codex` 重装，
+并删掉旧的错误副本 —— 用 `./install.sh --status` 可以列出所有副本位置。
+
 ## [1.1.0] - 2026-09-19
 
 ### ⚠️ 行为变更
@@ -97,7 +122,8 @@
 - 通过率的分母是实际执行的用例数，未自动化用例不计入，单独列出
 - 不做单元测试、接口测试、性能压测、视觉回归、CI 平台对接
 
-[未发布]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.1.0...HEAD
+[未发布]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/minshan1874/ai-playwright-skill/releases/tag/v1.0.0

@@ -67,6 +67,24 @@ PLAYWRIGHT_E2E_HOME="<可写目录>" node "$SKILL/scripts/bootstrap.mjs"
 
 一旦用了 `PLAYWRIGHT_E2E_HOME`，后续每个脚本都必须带上同一个环境变量。
 
+### 浏览器可见性
+
+**默认是有头模式** —— `explore.mjs` 和 `run.mjs` 都会真的弹出浏览器窗口，
+用户能看着它操作。这对「让用户信任测试结果」很重要，尤其是第一次测一个新站点时。
+
+| 参数 | 作用 | 什么时候用 |
+| --- | --- | --- |
+| （默认） | 弹出窗口，用户可见 | 正常情况 |
+| `--slow-mo 500` | 每个操作放慢 500ms，肉眼跟得上 | 用户说「太快了看不清」 |
+| `--headless` | 不弹窗口 | 无显示环境：CI、服务器、远程机器 |
+
+**你必须主动告诉用户这件事**，并在计划阶段就说明：测试会打开浏览器窗口；
+嫌快可以加 `--slow-mo`；不想弹窗就用 `--headless`，报告里的截图和 trace
+仍然能逐步回放。
+
+如果浏览器启动失败并提示 `cannot open display` 或类似错误，说明当前环境没有
+显示服务 —— 加 `--headless` 重试，不要反复重跑。
+
 ### 阶段 1 — 解析用例并生成测试计划
 
 ```bash
@@ -197,6 +215,15 @@ node "$SKILL/scripts/explore.mjs" --url "<网址>" --out "<runDir>/explore" --co
 #   ← 在 <runDir>/specs/ 下编写 .spec.ts
 node "$SKILL/scripts/run.mjs" --run-dir "<runDir>" --json
 node "$SKILL/scripts/report.mjs" --run-dir "<runDir>" --json
+```
+
+在 `explore.mjs` 和 `run.mjs` 上可叠加可见性参数：
+
+```bash
+# 放慢，让用户看得清（默认就有窗口，不用加 --headed）
+... --slow-mo 500 --json
+# 无显示环境（CI / 服务器 / 远程机器）
+... --headless --json
 ```
 
 所有脚本都支持 `--json`，会输出一行以 `###PLAYWRIGHT_E2E_JSON###` 开头的 JSON。

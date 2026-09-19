@@ -16,7 +16,10 @@ export const SUPPORTED_BROWSERS = ['chromium', 'firefox', 'webkit'];
 export const DEFAULT_CONFIG = {
   baseURL: '',
   browsers: ['chromium'],
-  headless: true,
+  // Headed by default: the tool is meant to be usable by anyone, and seeing the
+  // browser work is what makes a run trustworthy. CI and headless servers
+  // override this with `--headless`, since they have no display.
+  headless: false,
   viewport: { width: 1440, height: 900 },
   locale: 'zh-CN',
   timezoneId: 'Asia/Shanghai',
@@ -28,6 +31,7 @@ export const DEFAULT_CONFIG = {
   screenshot: 'only-on-failure',
   video: 'retain-on-failure',
   ignoreHTTPSErrors: false,
+  // Milliseconds to slow each action by. Only useful together with headed mode.
   slowMo: 0,
   auth: {
     enabled: false,
@@ -106,7 +110,7 @@ export function validateConfig(config) {
   }
 
   if (typeof config.headless !== 'boolean') problems.push('headless 必须是布尔值。');
-  for (const field of ['timeout', 'expectTimeout', 'retries', 'workers']) {
+  for (const field of ['timeout', 'expectTimeout', 'retries', 'workers', 'slowMo']) {
     if (!Number.isFinite(config[field]) || config[field] < 0) {
       problems.push(`${field} 必须是非负数字。`);
     }
@@ -191,7 +195,11 @@ export function buildConfig({ flags, env = process.env }) {
     base.browsers = flags.browsers.split(/[,，\s]+/).map((b) => b.trim()).filter(Boolean);
   }
   if (flags.headed === true) base.headless = false;
-  if (flags['headless'] === 'false') base.headless = false;
+  // `--headless` wins over `--headed` so CI and headless servers can force it no
+  // matter what a config file or a stray extra flag says.
+  if (flags.headless === true || flags.headless === 'true') base.headless = true;
+  if (flags.headless === 'false') base.headless = false;
+  if (typeof flags['slow-mo'] === 'string') base.slowMo = Number(flags['slow-mo']);
   if (typeof flags.retries === 'string') base.retries = Number(flags.retries);
   if (typeof flags.workers === 'string') base.workers = Number(flags.workers);
   if (typeof flags.timeout === 'string') base.timeout = Number(flags.timeout);
@@ -222,7 +230,7 @@ export function exampleConfigText() {
     {
       baseURL: 'https://your-app.example.com',
       browsers: ['chromium'],
-      headless: true,
+      headless: false,
       viewport: { width: 1440, height: 900 },
       locale: 'zh-CN',
       timezoneId: 'Asia/Shanghai',
@@ -234,6 +242,7 @@ export function exampleConfigText() {
       screenshot: 'only-on-failure',
       video: 'retain-on-failure',
       ignoreHTTPSErrors: false,
+      slowMo: 0,
       auth: {
         enabled: false,
         loginUrl: '/login',

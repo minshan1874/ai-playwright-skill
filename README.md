@@ -149,7 +149,8 @@ npm run demo
 {
   "baseURL": "https://your-app.example.com",
   "browsers": ["chromium"],
-  "headless": true,
+  "headless": false,
+  "slowMo": 0,
   "timeout": 30000,
   "retries": 1,
   "auth": {
@@ -168,6 +169,37 @@ npm run demo
 通过环境变量注入。skill 不会把密码写进任何生成的文件、报告或截图名。
 
 登录一次后会保存 `storageState` 供后续所有用例复用，不必每条用例重新登录。
+
+---
+
+## 能看到浏览器在做什么吗
+
+**能，而且是默认行为。** 测试执行时会真的弹出浏览器窗口，你能看着它一步步操作。
+
+| 参数 | 效果 |
+| --- | --- |
+| （默认） | 弹出窗口，全程可见 |
+| `--slow-mo 500` | 每个操作放慢 500ms，肉眼跟得上 |
+| `--headless` | 不弹窗口 |
+
+```bash
+# 放慢看
+node "$SKILL/scripts/run.mjs" --run-dir "<runDir>" --slow-mo 500
+
+# 无显示环境（CI、服务器、SSH 远程机器）
+node "$SKILL/scripts/run.mjs" --run-dir "<runDir>" --headless
+```
+
+> **CI / 服务器必须加 `--headless`。** 那些环境没有显示服务，有头模式会直接启动失败。
+> 报错关键词：`cannot open display`、`Missing X server`。
+
+**无头模式不等于看不见。** 截图、trace、HTML 报告照常产出。用 trace viewer 可以
+逐步回放每一个操作，附带当时的 DOM 快照、网络请求和控制台输出 ——
+排查问题时比盯着屏幕信息量更大：
+
+```bash
+node ~/.dsh/playwright-e2e/node_modules/playwright/cli.js show-trace "<trace 文件>"
+```
 
 ---
 

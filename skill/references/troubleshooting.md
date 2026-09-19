@@ -95,6 +95,54 @@ node "$SKILL/scripts/bootstrap.mjs" --playwright-version 1.64.0 --install-browse
 
 ## 3. 浏览器问题
 
+### 窗口弹不出来 / `cannot open display`
+
+**默认是有头模式**，会真的弹出一个浏览器窗口。以下环境没有显示服务，
+有头模式必然启动失败：
+
+- CI runner（GitHub Actions 的 `ubuntu-latest` 等）
+- 无头服务器、容器
+- 通过 SSH 连的远程机器
+
+处理：加 `--headless`。
+
+```bash
+node "$SKILL/scripts/run.mjs" --run-dir "<runDir>" --headless --json
+```
+
+或在 `e2e.config.json` 里设 `"headless": true`。
+
+常见报错关键词：`cannot open display`、`Missing X server`、
+`Target page, context or browser has been closed`、`Browser closed unexpectedly`。
+
+在 Linux CI 上有另一种选择是 `xvfb-run`，但既然测试本来就不需要人看，
+直接用 `--headless` 更简单也更快。
+
+> 内置演示 `demo.mjs` 已经默认无头，不受影响。想在自己机器上看它跑，
+> 用 `node skill/scripts/demo.mjs --headed`。
+
+### 窗口弹得太快，看不清
+
+加 `--slow-mo`，单位毫秒：
+
+```bash
+node "$SKILL/scripts/run.mjs" --run-dir "<runDir>" --slow-mo 500 --json
+```
+
+500 通常够用；设成 1000 以上会明显拖慢整体用时。只想排查某几条用例时，
+配合 `--grep` 一起用。
+
+### 不想弹窗，但想事后看过程
+
+无头模式下截图和 trace 都照常产出。用 trace viewer 可以逐步回放每个操作：
+
+```bash
+node ~/.dsh/playwright-e2e/node_modules/playwright/cli.js show-trace "<trace 文件>"
+```
+
+trace 文件路径在报告「失败详情」一节里。这比盯着屏幕信息量更大 ——
+可以看每一步的 DOM 快照、网络请求和控制台输出。
+
 ### `browserType.launch: Executable doesn't exist`
 
 浏览器没装，或版本与 Playwright 不匹配。

@@ -192,6 +192,23 @@ describe('repository hygiene', () => {
     );
   });
 
+  it('keeps the demo headless by default, since CI has no display', () => {
+    // The skill defaults to headed so a human can watch, but the demo must also
+    // run on runners with no display. It therefore forces headless unless the
+    // operator explicitly asks for a window.
+    const demo = fs.readFileSync(path.join(SKILL_DIR, 'scripts', 'demo.mjs'), 'utf8');
+    assert.match(demo, /modeFlags\.push\('--headless'\)/, 'demo 默认必须以 --headless 运行');
+    assert.match(demo, /modeFlags\.push\('--headed'\)/, 'demo 应支持 --headed 让人观看');
+  });
+
+  it('documents headed mode in the skill instructions', () => {
+    // If SKILL.md never mentions it, the agent cannot tell the user how to watch.
+    const skill = fs.readFileSync(SKILL_FILE, 'utf8');
+    assert.ok(skill.includes('--headed'), 'SKILL.md 必须说明怎么开窗口观看');
+    assert.ok(skill.includes('--headless'), 'SKILL.md 必须说明服务器/CI 上要用 --headless');
+    assert.ok(skill.includes('--slow-mo'), 'SKILL.md 必须说明怎么放慢以便肉眼跟');
+  });
+
   it('gives the CI demo job a deterministic browser cache path', () => {
     // actions/cache errors on a path that does not exist, and a platform-specific
     // default would make the cache key ambiguous. Pinning the path avoids both.

@@ -7,6 +7,31 @@
 
 ## [未发布]
 
+## [1.1.0] - 2026-09-19
+
+### ⚠️ 行为变更
+
+- **浏览器改为默认有头（弹出窗口）**。以前默认无头，跑测试时什么都看不见；
+  现在 `explore.mjs` 和 `run.mjs` 会真的弹出浏览器窗口，用户能看到全过程。
+  理由是这个工具面向非技术用户，「看得见」是信任的基础。
+- **在 CI、服务器、SSH 远程等无显示环境上，必须加 `--headless`**，否则浏览器
+  启动会失败（`cannot open display`）。这是本次唯一可能弄坏既有用法的改动。
+  内置演示已自行处理，不受影响。
+
+### 新增
+
+- `--headless` 参数：强制无头。优先级高于 `--headed` 和配置文件，
+  便于 CI 与无显示环境稳定覆盖。
+- `--slow-mo <毫秒>` 参数：放慢每个操作，方便肉眼跟随。以前只能改配置文件。
+- `SKILL.md` 新增「浏览器可见性」一节，并要求 AI 在计划阶段主动告知用户
+  会弹窗口、可以放慢、无显示环境要用 `--headless`。
+  此前 `--headed` 在主流程文档里完全没有出现，AI 无从主动告知。
+
+### 修复
+
+- 示例配置 `assets/e2e.config.example.json` 改为由 `exampleConfigText()`
+  生成，并加测试锁定两者一致，避免文档与实际默认值漂移。
+
 ## [1.0.1] - 2026-09-19
 
 ### 修复
@@ -72,6 +97,7 @@
 - 通过率的分母是实际执行的用例数，未自动化用例不计入，单独列出
 - 不做单元测试、接口测试、性能压测、视觉回归、CI 平台对接
 
-[未发布]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.0.1...HEAD
+[未发布]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/minshan1874/ai-playwright-skill/releases/tag/v1.0.0

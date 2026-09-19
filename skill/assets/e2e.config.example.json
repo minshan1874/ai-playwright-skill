@@ -1,8 +1,13 @@
 {
   "baseURL": "https://your-app.example.com",
-  "browsers": ["chromium"],
-  "headless": true,
-  "viewport": { "width": 1440, "height": 900 },
+  "browsers": [
+    "chromium"
+  ],
+  "headless": false,
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
   "locale": "zh-CN",
   "timezoneId": "Asia/Shanghai",
   "timeout": 30000,
@@ -13,6 +18,7 @@
   "screenshot": "only-on-failure",
   "video": "retain-on-failure",
   "ignoreHTTPSErrors": false,
+  "slowMo": 0,
   "auth": {
     "enabled": false,
     "loginUrl": "/login",
@@ -21,7 +27,7 @@
     "usernameSelector": "",
     "passwordSelector": "",
     "submitSelector": "",
-    "successUrl": "/dashboard",
+    "successUrl": "",
     "storageState": "",
     "saveAfterLogin": true
   }

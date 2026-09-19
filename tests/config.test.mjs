@@ -156,9 +156,45 @@ describe('config building', () => {
     assert.ok(problems.some((p) => p.includes('缺少被测网址')));
   });
 
+  it('is headed by default, so a user can watch the run', () => {
+    const { config } = buildConfig({ flags: { url: 'https://x.test' }, env: {} });
+    assert.equal(config.headless, false);
+  });
+
   it('maps --headed onto headless=false', () => {
     const { config } = buildConfig({ flags: { url: 'https://x.test', headed: true }, env: {} });
     assert.equal(config.headless, false);
+  });
+
+  it('lets --headless override both the default and --headed', () => {
+    // CI runners and headless servers have no display; this must always win.
+    for (const flags of [
+      { url: 'https://x.test', headless: true },
+      { url: 'https://x.test', headless: 'true' },
+      { url: 'https://x.test', headed: true, headless: true },
+    ]) {
+      assert.equal(buildConfig({ flags, env: {} }).config.headless, true, JSON.stringify(flags));
+    }
+  });
+
+  it('lets --headless=false opt back into a window', () => {
+    const { config } = buildConfig({ flags: { url: 'https://x.test', headless: 'false' }, env: {} });
+    assert.equal(config.headless, false);
+  });
+
+  it('parses --slow-mo into a number', () => {
+    assert.equal(buildConfig({ flags: { url: 'https://x.test', 'slow-mo': '500' }, env: {} }).config.slowMo, 500);
+  });
+
+  it('rejects a negative or non-numeric slowMo', () => {
+    for (const slowMo of [-1, 'fast']) {
+      const problems = validateConfig(mergeConfig({ slowMo }));
+      assert.ok(problems.some((p) => p.includes('slowMo')), `slowMo=${slowMo} 应被拒绝`);
+    }
+  });
+
+  it('defaults slowMo to 0 so runs are not needlessly slow', () => {
+    assert.equal(mergeConfig({}).slowMo, 0);
   });
 
   it('strips trailing slashes from the effective base URL', () => {
@@ -170,5 +206,15 @@ describe('config building', () => {
     assert.equal(parsed.baseURL, 'https://your-app.example.com');
     assert.deepEqual(parsed.browsers, ['chromium']);
     assert.deepEqual(validateConfig(mergeConfig(parsed)), []);
+  });
+
+  it('keeps the shipped example config in sync with exampleConfigText()', () => {
+    // The asset is generated from this function; if they drift, users copy a
+    // config that no longer matches the documented defaults.
+    const asset = fs.readFileSync(
+      path.join(process.cwd(), 'skill', 'assets', 'e2e.config.example.json'),
+      'utf8',
+    );
+    assert.deepEqual(JSON.parse(asset), JSON.parse(exampleConfigText()));
   });
 });

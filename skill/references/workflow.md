@@ -108,17 +108,25 @@ E2E_USERNAME=admin E2E_PASSWORD='***' node "$SKILL/scripts/run.mjs" --run-dir "<
 
 ### 方式二：手工登录一次
 
-先用有头模式打开浏览器手工登录，再导出状态：
+浏览器默认就是有头模式（会弹窗口），所以直接跑就能看到页面：
 
 ```bash
-node "$SKILL/scripts/explore.mjs" --url "<网址>" --out "<runDir>/explore" --headed --json
+node "$SKILL/scripts/explore.mjs" --url "<网址>" --out "<runDir>/explore" --json
 ```
 
-更直接的做法是写一个一次性脚本，或用 Playwright 的 `codegen`：
+需要人工输入验证码、短信码或扫码登录时，加 `--slow-mo` 争取操作时间：
+
+```bash
+node "$SKILL/scripts/explore.mjs" --url "<网址>" --out "<runDir>/explore" --slow-mo 1000 --json
+```
+
+更直接的做法是把登录态导出来复用，用 Playwright 的 `codegen`：
 
 ```bash
 node ~/.dsh/playwright-e2e/node_modules/playwright/cli.js codegen --save-storage="$HOME/.dsh/playwright-e2e/auth/site.json" "<网址>"
 ```
+
+`codegen` 会打开一个窗口让你手工操作，结束后把 `storageState` 写到指定路径。
 
 然后把 `auth.storageState` 指到该文件，并设 `auth.enabled: false`：
 

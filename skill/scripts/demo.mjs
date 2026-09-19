@@ -25,6 +25,18 @@ const DEMO_DIR = path.join(SKILL_DIR, 'assets', 'demo');
 const { json, flags } = parseArgs(process.argv.slice(2));
 const reporter = createReporter({ json, script: 'demo' });
 
+/**
+ * Browser-visibility flags forwarded to the explore and run phases.
+ *
+ * The demo defaults to headless even though the skill's own default is headed,
+ * because CI runners have no display. Run `node scripts/demo.mjs --headed` to
+ * watch it on your own machine.
+ */
+const modeFlags = [];
+if (flags.headed === true) modeFlags.push('--headed');
+else modeFlags.push('--headless');
+if (typeof flags['slow-mo'] === 'string') modeFlags.push('--slow-mo', flags['slow-mo']);
+
 const CONTENT_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -221,10 +233,14 @@ async function main() {
     record('用户确认计划', true, '状态：已确认');
 
     // --- 4. Explore ---------------------------------------------------------
+    // `--headless` is forced because the default is now headed (so a human can
+    // watch), and CI runners have no display. Pass `--headed` yourself to watch
+    // the demo: node scripts/demo.mjs --headed
     const explore = await runScript('explore.mjs', [
       '--url', server.url,
       '--out', path.join(runDir, 'explore'),
       '--config', path.join(runDir, 'e2e.config.json'),
+      ...modeFlags,
     ]);
     if (!explore.payload?.ok) throw new Error(`探索失败：${explore.payload?.error ?? explore.stderr}`);
     record('探索页面', true, `${explore.payload.counts.total} 个可交互元素`);
@@ -236,7 +252,7 @@ async function main() {
     record('固化用例', true, 'demo.spec.ts（4 条自动化 + 1 条未自动化）');
 
     // --- 6. Execute ---------------------------------------------------------
-    const run = await runScript('run.mjs', ['--run-dir', runDir]);
+    const run = await runScript('run.mjs', ['--run-dir', runDir, ...modeFlags]);
     if (!run.payload?.ok) {
       throw new Error(
         `执行失败：${run.payload?.error ?? run.stderr}\n${run.payload?.hint ?? ''}`,

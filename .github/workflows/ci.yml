@@ -25,9 +25,9 @@ jobs:
       matrix:
         node: ['20', '22']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
 
@@ -57,9 +57,9 @@ jobs:
       # 把浏览器装到工作区内的固定路径：缓存 key 只依赖版本，且不跨平台串味
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
 
@@ -68,7 +68,7 @@ jobs:
         run: mkdir -p .pw-browsers
 
       - name: 缓存 Playwright 浏览器
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .pw-browsers
           key: pw-${{ runner.os }}-${{ runner.arch }}-1.63.0
@@ -81,7 +81,7 @@ jobs:
 
       - name: 上传测试报告
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: demo-report-${{ matrix.os }}
           path: |

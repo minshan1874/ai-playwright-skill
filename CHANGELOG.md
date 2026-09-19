@@ -7,6 +7,26 @@
 
 ## [未发布]
 
+## [1.0.1] - 2026-09-19
+
+### 修复
+
+- **`demo.mjs` 在干净机器上必然失败**：它以不带 `--install-browsers` 的方式调用
+  `bootstrap.mjs`，而 bootstrap 按设计会先征求同意再下载浏览器，于是演示直接以
+  「环境未就绪」退出。本地开发时 Chromium 已缓存所以看不出来，任何全新环境
+  （包括干净 CI runner）都会中招。演示由人工显式触发，这个动作本身就是同意，
+  现在会主动安装缺失的浏览器。
+- **CI 浏览器缓存路径不确定**：改用 `PLAYWRIGHT_BROWSERS_PATH` 固定到工作区内，
+  避免平台默认路径不一致，并在 `actions/cache` 之前先创建目录
+  （该 action 在路径不存在时会报错）。
+
+### 新增
+
+- 回归测试：`demo.mjs` 必须以 `--install-browsers` 调用 bootstrap；
+  CI 必须固定浏览器缓存路径。
+
+> 1.0.0 对首次使用 Playwright 的环境不可用，请使用 1.0.1 或更高版本。
+
 ## [1.0.0] - 2026-09-19
 
 首个可用版本。
@@ -52,5 +72,6 @@
 - 通过率的分母是实际执行的用例数，未自动化用例不计入，单独列出
 - 不做单元测试、接口测试、性能压测、视觉回归、CI 平台对接
 
-[未发布]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.0.0...HEAD
+[未发布]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/minshan1874/ai-playwright-skill/releases/tag/v1.0.0

@@ -41,6 +41,7 @@ playwright/.cache/
 .e2e-ci/
 .playwright-e2e/
 .playwright-browsers/
+.pw-browsers/
 
 # ─────────────────────────────────────────────────────────────────────
 # 日志

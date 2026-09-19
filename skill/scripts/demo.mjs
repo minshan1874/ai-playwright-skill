@@ -168,7 +168,11 @@ async function main() {
   };
 
   // --- 0. Environment -------------------------------------------------------
-  const bootstrap = await runScript('bootstrap.mjs', []);
+  // `--install-browsers` is passed deliberately: the demo is invoked explicitly
+  // by a human, which *is* the consent bootstrap otherwise waits for. Without it
+  // the demo could never run on a machine that has not used Playwright before —
+  // including every fresh CI runner.
+  const bootstrap = await runScript('bootstrap.mjs', ['--install-browsers']);
   if (!bootstrap.payload?.ready) {
     process.exit(
       reporter.finish({

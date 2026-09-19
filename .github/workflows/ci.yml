@@ -34,24 +34,28 @@ jobs:
       - name: 运行单元测试
         run: npm test
 
-      - name: 校验 skill 清单与脚本语法
-        run: node --test tests/skill.test.mjs
-
   # ───────────────────────────────────────────────────────────────────
-  # 离线全链路：装依赖 → 起本地演示站 → 解析 / 计划 / 确认 / 探索 /
-  # 执行 / 报告。demo.mjs 会断言结果必须恰好是 3 通过 / 1 失败 /
-  # 1 未自动化，否则以非零退出码结束。
+  # 离线全链路：装依赖 → 装浏览器 → 起本地演示站 → 解析 / 计划 /
+  # 确认 / 探索 / 执行 / 报告。
+  #
+  # demo.mjs 会断言结果必须恰好是 3 通过 / 1 失败 / 1 未自动化，
+  # 否则以非零退出码结束。
+  #
+  # 这个 job 跑在干净机器上，因此它同时验证了「首次使用者能否自动装好环境」
+  # —— 这正是本地开发（浏览器已缓存）覆盖不到的场景。
   # ───────────────────────────────────────────────────────────────────
   demo:
-    name: 离线全链路演示
+    name: 离线全链路演示 (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     env:
-      # 把运行目录放进工作区，方便收集产物
+      # 运行目录放进工作区，便于收集产物
       PLAYWRIGHT_E2E_HOME: ${{ github.workspace }}/.e2e-ci
+      # 把浏览器装到工作区内的固定路径：缓存 key 只依赖版本，且不跨平台串味
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
     steps:
       - uses: actions/checkout@v4
 
@@ -59,12 +63,14 @@ jobs:
         with:
           node-version: '22'
 
+      # actions/cache 在路径不存在时会报错，所以先建出来
+      - name: 准备浏览器目录
+        run: mkdir -p .pw-browsers
+
       - name: 缓存 Playwright 浏览器
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cache/ms-playwright
-            ~/Library/Caches/ms-playwright
+          path: .pw-browsers
           key: pw-${{ runner.os }}-${{ runner.arch }}-1.63.0
 
       - name: 环境自检

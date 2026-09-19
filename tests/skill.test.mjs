@@ -168,9 +168,36 @@ describe('repository hygiene', () => {
   });
 
   it('ignores runtime artifacts and the toolchain', () => {
-    for (const pattern of ['node_modules/', 'runs/', 'playwright-report/', 'test-results/', '.npm-cache/']) {
+    for (const pattern of [
+      'node_modules/',
+      'runs/',
+      'playwright-report/',
+      'test-results/',
+      '.npm-cache/',
+      '.pw-browsers/',
+    ]) {
       assert.ok(gitignore.includes(pattern), `.gitignore 缺少 "${pattern}"`);
     }
+  });
+
+  it('lets the demo install browsers, so it works on a fresh machine', () => {
+    // The demo is invoked explicitly by a human, which is the consent bootstrap
+    // otherwise waits for. Without this flag the demo can never run on a machine
+    // that has not used Playwright before — every clean CI runner included.
+    const demo = fs.readFileSync(path.join(SKILL_DIR, 'scripts', 'demo.mjs'), 'utf8');
+    assert.match(
+      demo,
+      /runScript\('bootstrap\.mjs', \[\s*'--install-browsers'\s*\]\)/,
+      'demo.mjs 必须以 --install-browsers 调用 bootstrap，否则在干净机器上必然失败',
+    );
+  });
+
+  it('gives the CI demo job a deterministic browser cache path', () => {
+    // actions/cache errors on a path that does not exist, and a platform-specific
+    // default would make the cache key ambiguous. Pinning the path avoids both.
+    const ci = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
+    assert.match(ci, /PLAYWRIGHT_BROWSERS_PATH:/, 'CI 应固定 PLAYWRIGHT_BROWSERS_PATH');
+    assert.match(ci, /mkdir -p \.pw-browsers/, '缓存前应先创建浏览器目录');
   });
 
   it('ships a LICENSE matching the declared license', () => {

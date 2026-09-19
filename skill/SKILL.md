@@ -3,7 +3,7 @@ name: playwright-e2e
 description: 把被测网址和功能测试用例（Excel/CSV/Markdown）变成可执行的端到端自动化测试。自动准备 Playwright 环境、解析用例、输出测试计划并等待用户确认，确认后探索真实页面、固化为 Playwright 用例、执行测试，最终产出 Markdown 测试报告、Playwright HTML 报告与 JSON 结果。适用于功能验证、回归测试和上线前检查。
 whenToUse: 当用户提供被测网址和功能测试用例（或要求「帮我测一下这个网站/这个功能」），需要生成测试计划、自动执行端到端测试并输出测试报告时使用。
 metadata:
-  version: 1.3.0
+  version: 1.4.0
   requires:
     node: ">=20"
 ---

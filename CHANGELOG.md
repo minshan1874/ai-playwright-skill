@@ -7,6 +7,27 @@
 
 ## [未发布]
 
+## [1.4.0] - 2026-09-19
+
+### 新增
+
+- **`install.sh --update`**：就地覆盖更新**所有已发现的副本**，不需要知道它们在哪，
+  也不用先手动删。按 `SKILL.md` 的 `name` 扫描 DSH / Codex / 项目级三处技能根目录，
+  因此**装错目录名的副本**（如 `~/.codex/skills/skill/`）也能一并刷新。
+  替换用「暂存目录 + 交换」，中途失败自动回滚，不会留下半拷贝状态。
+
+  动机：Codex 自带的 skill 安装器遇到已存在的目标目录会直接报错退出
+  （`Destination already exists`），所以「更新」只能靠「先删再装」——
+  而它的默认命名取自路径 basename，正是 `skills/skill/` 这种错名的来源。
+
+### 修复
+
+- **`install.sh` / `uninstall.sh` 中变量后紧跟非 ASCII 字符时未加花括号**。
+  例如 `echo "$dir（中文）"` 会让 bash 把多字节字符的首字节算进变量名，
+  在 `set -u` 下直接以 `unbound variable` 中断脚本 —— 而且只在走到那一行时才触发。
+  共 6 处，其中 `uninstall.sh --purge` 相关 4 处此前从未被执行过，属于潜伏缺陷。
+  已全部改为 `${VAR}` 形式，并加测试锁定这个模式。
+
 ## [1.3.0] - 2026-09-19
 
 ### 修复
@@ -135,7 +156,8 @@
 - 通过率的分母是实际执行的用例数，未自动化用例不计入，单独列出
 - 不做单元测试、接口测试、性能压测、视觉回归、CI 平台对接
 
-[未发布]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.3.0...HEAD
+[未发布]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.0.1...v1.1.0

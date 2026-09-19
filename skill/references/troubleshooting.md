@@ -296,7 +296,23 @@ node ~/.dsh/playwright-e2e/node_modules/playwright/cli.js show-trace "<trace 文
 
 ---
 
-## 8. 还是解决不了
+## 8. 怀疑装的是旧版
+
+表现：行为和新文档对不上，比如明明说默认弹窗口却不弹。
+
+```bash
+cd <仓库目录>
+./install.sh --status     # 列出所有副本的版本与脚本是否匹配
+./install.sh --update     # 就地覆盖所有副本
+```
+
+`--status` 按 `SKILL.md` 的 `name` 扫描所有技能根目录，连装错目录名
+（如 `~/.codex/skills/skill/`）的副本也能找出来。
+
+更新后**必须新开一个会话** —— 当前会话已经把旧版 `SKILL.md` 读进上下文了，
+即使文件更新，这一轮仍会按旧指令行动。
+
+## 9. 还是解决不了
 
 把以下信息一起反馈，能大幅缩短定位时间：
 

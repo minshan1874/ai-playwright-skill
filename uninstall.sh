@@ -45,14 +45,14 @@ if [[ -e "$DEST" || -L "$DEST" ]]; then
   rm -rf "$DEST"
   echo "✅ 已移除 skill：$DEST"
 else
-  echo "ℹ️  未找到 skill：$DEST（可能已经移除）"
+  echo "ℹ️  未找到 skill：${DEST}（可能已经移除）"
 fi
 
 if [[ "$PURGE" -eq 1 ]]; then
   if [[ -d "$HOME_DIR" ]]; then
     SIZE="$(du -sh "$HOME_DIR" 2>/dev/null | cut -f1 || echo '未知')"
     rm -rf "$HOME_DIR"
-    echo "✅ 已删除运行数据：$HOME_DIR（释放 $SIZE）"
+    echo "✅ 已删除运行数据：${HOME_DIR}（释放 ${SIZE}）"
     echo "   包含：Playwright 依赖、npm 缓存、历史运行记录、保存的登录态。"
   else
     echo "ℹ️  未找到运行数据目录：$HOME_DIR"

@@ -336,6 +336,117 @@ describe('script syntax', () => {
   }
 });
 
+describe('shell scripts', () => {
+  const SCRIPTS = ['install.sh', 'uninstall.sh'].map((name) => path.join(ROOT, name));
+
+  for (const file of SCRIPTS) {
+    it(`${path.basename(file)} parses`, () => {
+      execFileSync('bash', ['-n', file], { stdio: 'pipe' });
+    });
+  }
+
+  it('braces every variable that is followed by a non-ASCII character', () => {
+    // `echo "$dir（中文）"` makes bash swallow the first byte of the multi-byte
+    // character into the variable name. Under `set -u` that aborts the script
+    // with a baffling "unbound variable", and only on the code path that runs it.
+    const pattern = /\$([A-Za-z_][A-Za-z0-9_]*)(?=[^\x00-\x7F])/;
+    const offenders = [];
+    for (const file of SCRIPTS) {
+      fs.readFileSync(file, 'utf8')
+        .split('\n')
+        .forEach((line, index) => {
+          const match = pattern.exec(line);
+          if (match) offenders.push(`${path.basename(file)}:${index + 1}  $${match[1]}`);
+        });
+    }
+    assert.deepEqual(offenders, [], `变量后紧跟非 ASCII 时必须写成 \${VAR}：\n${offenders.join('\n')}`);
+  });
+
+  it('documents --update in the help text', () => {
+    const install = fs.readFileSync(path.join(ROOT, 'install.sh'), 'utf8');
+    assert.match(install, /--update\)\s+UPDATE_ONLY=1/, '--update 未接入参数解析');
+    assert.ok(install.includes('--update        #'), '--update 未写进用法说明');
+  });
+});
+
+describe('install.sh --update', () => {
+  /**
+   * Run install.sh against an isolated set of homes.
+   * @param {string[]} args
+   * @param {{dsh: string, codex: string}} homes
+   */
+  function runInstall(args, homes) {
+    return execFileSync('bash', [path.join(ROOT, 'install.sh'), ...args], {
+      encoding: 'utf8',
+      env: { ...process.env, DSH_HOME: homes.dsh, CODEX_HOME: homes.codex },
+      stdio: 'pipe',
+    });
+  }
+
+  /** Create a stale copy at the given path, mimicking an old install. */
+  function seedStaleCopy(dir) {
+    fs.mkdirSync(path.join(dir, 'scripts', 'lib'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'SKILL.md'),
+      '---\nname: playwright-e2e\ndescription: 旧的副本\nmetadata:\n  version: 0.0.1\n---\n\n旧内容\n',
+    );
+    fs.writeFileSync(path.join(dir, 'scripts', 'lib', 'config.mjs'), '// 旧脚本\n');
+  }
+
+  it('refreshes an outdated copy in place', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pw-e2e-update-'));
+    const homes = { dsh: home, codex: path.join(home, 'codex') };
+    try {
+      const copy = path.join(homes.dsh, 'skills', 'playwright-e2e');
+      seedStaleCopy(copy);
+
+      runInstall(['--update'], homes);
+
+      // The version now matches the source, and the stale script is gone.
+      const updated = fs.readFileSync(path.join(copy, 'SKILL.md'), 'utf8');
+      const source = fs.readFileSync(path.join(SKILL_DIR, 'SKILL.md'), 'utf8');
+      assert.match(updated, /version: 1\.\d+\.\d+/);
+      assert.equal(updated, source);
+      assert.ok(!fs.readFileSync(path.join(copy, 'scripts', 'lib', 'config.mjs'), 'utf8').includes('旧脚本'));
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('finds copies whose directory is misnamed', () => {
+    // The real-world failure: a copy installed as `skills/skill/` because the
+    // installer derived the name from the path basename.
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pw-e2e-update-'));
+    const homes = { dsh: home, codex: path.join(home, 'codex') };
+    try {
+      const misnamed = path.join(homes.codex, 'skills', 'skill');
+      seedStaleCopy(misnamed);
+
+      const output = runInstall(['--update'], homes);
+
+      assert.ok(output.includes(misnamed), '未报告更新了错名副本');
+      assert.equal(
+        fs.readFileSync(path.join(misnamed, 'SKILL.md'), 'utf8'),
+        fs.readFileSync(path.join(SKILL_DIR, 'SKILL.md'), 'utf8'),
+      );
+      // Updated in place: the directory name is deliberately left alone.
+      assert.ok(fs.existsSync(misnamed));
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('reports when there is nothing to update', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pw-e2e-update-'));
+    try {
+      const output = runInstall(['--update'], { dsh: home, codex: path.join(home, 'codex') });
+      assert.ok(output.includes('未发现任何已安装副本'));
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('CLI contracts', () => {
   /**
    * Scratch home for the CLI subprocesses. Kept in the OS temp directory so the

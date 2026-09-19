@@ -6,10 +6,11 @@
 #   ./install.sh --codex         # 安装到 ~/.codex/skills/playwright-e2e（Codex 全局）
 #   ./install.sh --all           # 同时装到 DSH 和 Codex
 #   ./install.sh --project       # 安装到 ./.dsh/skills/playwright-e2e（仅当前项目）
+#   ./install.sh --update        # 就地覆盖更新所有已发现的副本（含装错目录名的）
+#   ./install.sh --status        # 只检查各处已安装副本的版本，不安装
 #   ./install.sh --link          # 用软链接指向本仓库（开发用，改代码立即生效）
 #   ./install.sh --force         # 覆盖已存在的安装
 #   ./install.sh --target <目录> # 安装到指定目录
-#   ./install.sh --status        # 只检查各处已安装副本的版本，不安装
 #
 set -euo pipefail
 
@@ -21,6 +22,7 @@ MODE="global"
 FORCE=0
 TARGET=""
 STATUS_ONLY=0
+UPDATE_ONLY=0
 TARGETS=()
 
 while [[ $# -gt 0 ]]; do
@@ -31,9 +33,10 @@ while [[ $# -gt 0 ]]; do
     --link)    MODE="link"; shift ;;
     --force)   FORCE=1; shift ;;
     --status)  STATUS_ONLY=1; shift ;;
+    --update)  UPDATE_ONLY=1; shift ;;
     --target)  TARGET="${2:-}"; shift 2 ;;
     -h|--help)
-      sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -161,7 +164,7 @@ fi
 
 SKILL_NAME_IN_FILE="$(awk '/^name:[[:space:]]*/{print $2; exit}' "$SOURCE_DIR/SKILL.md" | tr -d '\r')"
 if [[ "$SKILL_NAME_IN_FILE" != "$SKILL_NAME" ]]; then
-  echo "❌ SKILL.md 的 name 字段是「${SKILL_NAME_IN_FILE:-空}」，期望「$SKILL_NAME」。" >&2
+  echo "❌ SKILL.md 的 name 字段是「${SKILL_NAME_IN_FILE:-空}」，期望「${SKILL_NAME}」。" >&2
   echo "   DSH 与 Codex 都要求 name 为 kebab-case 且与目录名一致。" >&2
   exit 1
 fi
@@ -169,6 +172,78 @@ fi
 if ! grep -q '^description:[[:space:]]*.' "$SOURCE_DIR/SKILL.md"; then
   echo "❌ SKILL.md 缺少 description 字段，运行时会被忽略。" >&2
   exit 1
+fi
+
+# --- Update every copy in place ---------------------------------------------
+# Replaces a directory using a staging dir plus a swap, so a failure midway
+# leaves the previous install intact instead of a half-copied mess.
+replace_dir() {
+  local dest="$1"
+  local staging="$dest.updating.$$"
+  local backup="$dest.old.$$"
+
+  rm -rf "$staging" "$backup"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --exclude 'node_modules' --exclude '.npm-cache' --exclude 'runs' "$SOURCE_DIR/" "$staging/"
+  else
+    cp -R "$SOURCE_DIR" "$staging"
+    rm -rf "$staging/node_modules" "$staging/.npm-cache" "$staging/runs"
+  fi
+
+  mv "$dest" "$backup" || { rm -rf "$staging"; return 1; }
+  if mv "$staging" "$dest"; then
+    rm -rf "$backup"
+    return 0
+  fi
+  # Roll back so the caller still has a working install.
+  mv "$backup" "$dest"
+  rm -rf "$staging"
+  return 1
+}
+
+update_all_copies() {
+  local copies
+  copies="$(find_copies)"
+
+  if [[ -z "$copies" ]]; then
+    echo "未发现任何已安装副本，无需更新。"
+    echo "首次安装请运行：./install.sh [--codex|--all]"
+    return 0
+  fi
+
+  local source_version updated=0 failed=0
+  source_version="$(skill_version "$SOURCE_DIR/SKILL.md")"
+
+  while IFS= read -r dir; do
+    [[ -n "$dir" ]] || continue
+    # Never overwrite the source itself, e.g. when the repo sits inside a
+    # scanned skills root.
+    if [[ "$(cd "$dir" && pwd -P)" == "$(cd "$SOURCE_DIR" && pwd -P)" ]]; then
+      echo "⏭  跳过源码目录本身：$dir"
+      continue
+    fi
+
+    local before
+    before="$(skill_version "$dir/SKILL.md")"
+    if replace_dir "$dir"; then
+      echo "✅ 已更新：${dir}（$before → ${source_version}）"
+      updated=$((updated + 1))
+    else
+      echo "❌ 更新失败，已回滚到原状：$dir" >&2
+      failed=$((failed + 1))
+    fi
+  done <<< "$copies"
+
+  echo
+  echo "更新完成：$updated 个成功，$failed 个失败。"
+  [[ "$failed" -eq 0 ]]
+}
+
+if [[ "$UPDATE_ONLY" -eq 1 ]]; then
+  update_all_copies
+  echo
+  report_status
+  exit $?
 fi
 
 # --- Install ----------------------------------------------------------------

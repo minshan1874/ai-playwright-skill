@@ -8,6 +8,8 @@
  *   - install `@playwright/test` + `exceljs` once, with a home-local npm cache
  *   - report which browsers are already cached, so the agent can ask before a
  *     large download
+ *   - with `--probe-launch`, actually start a browser to prove the environment
+ *     allows it (a sandbox denial is invisible until the process starts)
  *
  * `--check` performs no writes at all and is safe to call while planning.
  */
@@ -15,6 +17,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { probeBothModes } from './lib/launch-probe.mjs';
 import { createReporter, parseArgs } from './lib/log.mjs';
 import {
   DEFAULT_PLAYWRIGHT_VERSION,
@@ -42,6 +45,7 @@ const reporter = createReporter({ json, script: 'bootstrap' });
 
 const checkOnly = flags.check === true;
 const installMissingBrowsers = flags['install-browsers'] === true;
+const probeLaunchFlag = flags['probe-launch'] === true;
 const playwrightVersion =
   typeof flags['playwright-version'] === 'string' ? flags['playwright-version'] : DEFAULT_PLAYWRIGHT_VERSION;
 
@@ -236,6 +240,28 @@ async function main() {
     );
   }
 
+  // --- Optional launch probe ------------------------------------------------
+  // Only a real launch reveals a sandbox that blocks the browser. Skipped by
+  // default because it costs a few seconds and CI does not need it.
+  let launch = null;
+  if (probeLaunchFlag) {
+    if (!depsOk) {
+      launch = {
+        skipped: true,
+        reason: '依赖尚未安装，无法探测浏览器启动。',
+      };
+      reporter.note('ℹ️  依赖未就绪，跳过浏览器启动探测。');
+    } else {
+      reporter.note(`正在探测浏览器能否启动（${browsers[0] ?? 'chromium'}）…`);
+      const probed = await probeBothModes({ home, browserName: browsers[0] ?? 'chromium' });
+      launch = probed;
+      reporter.note(probed.summary);
+      if (probed.mustAskUser && probed.headed.action) {
+        reporter.note(`   → ${probed.headed.action}`);
+      }
+    }
+  }
+
   const result = {
     ok: browserInstallError === null,
     ready,
@@ -262,6 +288,7 @@ async function main() {
       installed: browsersInstalled,
       error: browserInstallError,
     },
+    launch,
     needsBrowserInstall: finalProbe.missing,
     downloadEstimate: finalProbe.missing.length > 0 ? describeDownloadSize(finalProbe.missing) : null,
     nextStep: ready

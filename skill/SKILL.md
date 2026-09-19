@@ -3,7 +3,7 @@ name: playwright-e2e
 description: 把被测网址和功能测试用例（Excel/CSV/Markdown）变成可执行的端到端自动化测试。自动准备 Playwright 环境、解析用例、输出测试计划并等待用户确认，确认后探索真实页面、固化为 Playwright 用例、执行测试，最终产出 Markdown 测试报告、Playwright HTML 报告与 JSON 结果。适用于功能验证、回归测试和上线前检查。
 whenToUse: 当用户提供被测网址和功能测试用例（或要求「帮我测一下这个网站/这个功能」），需要生成测试计划、自动执行端到端测试并输出测试报告时使用。
 metadata:
-  version: 1.6.0
+  version: 1.7.0
   requires:
     node: ">=20"
 ---
@@ -54,19 +54,22 @@ SKILL="<本 skill 的基础目录>"     # 例如 ~/.dsh/skills/playwright-e2e
 
 ### 阶段 0 — 环境准备
 
-先做只读自检，再按需安装：
+先做只读自检，**并且必须探测浏览器能否真正启动**：
 
 ```bash
-node "$SKILL/scripts/bootstrap.mjs" --check --json
+node "$SKILL/scripts/bootstrap.mjs" --check --probe-launch --json
 ```
 
 `--check` 是**只读自检**，不写任何文件；不带 `--check` 时脚本可能安装 npm 依赖、
 创建运行目录。依赖安装失败、浏览器下载失败、权限拒绝都属于**环境问题**，
 不得写成测试失败或「用例未通过」。
 
-看返回的 `ready` 字段：
+`--probe-launch` 会真的启动一次浏览器再关掉。**这一步是强制的、不可跳过** ——
+沙箱放不放行浏览器只有真启动才知道，光看配置看不出来。
 
-- `ready: true` → 直接进入阶段 1。
+先看 `ready`：
+
+- `ready: true` → 环境就绪，继续看 `launch`。
 - `ready: false` 且 `needsBrowserInstall` 非空 → **先告诉用户要下载哪些浏览器、大约多大**
   （`downloadEstimate`），征得同意后再执行：
   ```bash
@@ -75,6 +78,46 @@ node "$SKILL/scripts/bootstrap.mjs" --check --json
 - `ready: false` 且 `blocked` 非空 → 这是沙箱或权限问题。把 `hint` 原文转达给用户，
   请用户批准提权，或让用户指定一个可写目录：
   `PLAYWRIGHT_E2E_HOME=<可写目录> node "$SKILL/scripts/bootstrap.mjs"`。
+
+**然后必须看 `launch`，并按下面的结果决定，不要自己发挥：**
+
+| `launch` | 含义 | 你要做的 |
+| --- | --- | --- |
+| `canShowWindow: true` | 能弹窗口 | 正常。在计划里写明「执行时会弹出浏览器窗口，测试人员能看到全过程」 |
+| `canShowWindow: false` | **弹不出窗口** | **进入下面的「弹不出窗口时的固定流程」**，不要直接开跑 |
+
+#### 弹不出窗口时的固定流程
+
+按 `launch.headed.kind` 分流。**两种情况的处理方式相反，不要混。**
+
+**情况 A：`kind === 'sandbox-mach'`**（报错含 `bootstrap_check_in`、
+`MachPortRendezvousServer`、`crashpad ... Permission denied (1100)`）
+
+沙箱禁止 Chromium 注册 Mach 端口。有头无头共用同一套多进程 IPC，
+**所以改成无头一样会失败**。必须按顺序做：
+
+1. **不要改成 `--headless`** —— 那样不会成功，只会白跑一轮。
+2. **申请更宽的执行权限**（提权），然后**在有头模式下重新探测**：
+   ```bash
+   node "$SKILL/scripts/bootstrap.mjs" --check --probe-launch --json
+   ```
+   探测通过就继续正常流程。
+3. 提权后仍不行 → **停下来问用户**，给出两个选项让用户选：
+   - 用户在有桌面会话的普通终端里自己跑；
+   - 接受无头执行（测试人员看不到过程）。
+4. **只有用户明确选了「接受无头」，才可以加 `--headless`**，并在报告里注明可见性降级。
+
+**情况 B：`kind === 'no-display'`**（报错含 `cannot open display`、`Missing X server`）
+
+确实没有显示服务（Linux 无 X、SSH 远程、容器）。无头在这里是可用的，
+但仍要**先告知用户**「当前环境弹不了窗口，测试人员将看不到执行过程」，
+得到同意后再加 `--headless`。
+
+**不论哪种情况，都不得悄悄降级。** 有头是本 skill 的承诺 —— 测试人员要能看到执行过程；
+改成无头就是承诺落空，必须在计划里写清楚、让用户知情。
+
+`explore.mjs` 和 `run.mjs` 失败时也会返回同样的 `failureKind` 与 `canRetryHeadless`，
+照它们给的 `hint` 做即可。`canRetryHeadless: false` 时**不要**自己改成无头。
 
 默认只装 Chromium。用户要求多浏览器时用 `--browsers chromium,firefox,webkit`。
 更细的排查见 `references/troubleshooting.md`。
@@ -113,15 +156,10 @@ PLAYWRIGHT_E2E_HOME="<可写目录>" node "$SKILL/scripts/bootstrap.mjs"
 嫌快可以加 `--slow-mo`；不想弹窗就用 `--headless`。无头模式下报告里的截图和 trace
 仍然能逐步回放（若配置启用了截图与 trace）。
 
-**启动失败时先分清是哪一种 —— 两种情况处理方式相反：**
-
-| 报错特征 | 原因 | 怎么办 |
-| --- | --- | --- |
-| `bootstrap_check_in ... Permission denied (1100)`<br>`MachPortRendezvousServer`<br>`crashpad ... Permission denied` | **沙箱禁止 Chromium 注册 Mach 端口**（macOS seatbelt）。有头无头共用同一套多进程 IPC，**两种模式都会失败** | **不要改成 `--headless`，那样不会成功。** 向用户说明并申请更宽的执行权限，或让用户在有桌面会话的普通终端里跑 |
-| `cannot open display` / `Missing X server` | 没有显示服务（Linux 无 X、SSH 远程） | 加 `--headless` 重试 —— 这个场景下无头确实可用 |
-
-`explore.mjs` 与 `run.mjs` 会返回 `failureKind` 和 `canRetryHeadless`，
-照它们给的 `hint` 做即可，不要自己猜。
+**启动失败时按 `failureKind` 分流** —— 见阶段 0 的「弹不出窗口时的固定流程」。
+一句话记住：`sandbox-mach`（`bootstrap_check_in` / `MachPortRendezvousServer`）
+**换无头也没用**，要申请提权；`no-display`（`cannot open display`）换无头才有效。
+两者都必须先告知用户。
 
 **降级必须告知用户，不能悄悄做。** 有头是本 skill 的承诺：测试人员要能看到执行过程。
 改成无头就等于承诺落空 —— 必须先告诉用户「当前环境无法弹窗口，测试人员将看不到

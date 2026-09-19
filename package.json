@@ -1,6 +1,6 @@
 {
   "name": "ai-playwright-skill",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "private": true,
   "type": "module",
   "description": "DSH skill: AI-driven end-to-end testing with Playwright — turn a URL and a spreadsheet of test cases into a confirmed test plan, an executed suite, and a traceable test report.",

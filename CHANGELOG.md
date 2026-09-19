@@ -7,6 +7,35 @@
 
 ## [未发布]
 
+## [1.7.0] - 2026-09-19
+
+### 新增
+
+- **阶段 0 强制探测浏览器能否真正启动**：`bootstrap.mjs --check --probe-launch`。
+  沙箱放不放行浏览器只有真启动才知道，光看配置看不出来。探测会分别尝试有头与无头，
+  返回 `launch.canShowWindow` 与 `launch.mustAskUser`。
+
+  这样「弹不出窗口」在**计划阶段**就暴露，用户可以一次性把决定做完，
+  而不是等到执行中途 agent 临时发挥。
+
+- **「弹不出窗口时的固定流程」写进 SKILL.md**，按 `failureKind` 分流且无歧义：
+
+  | 情况 | 必须做什么 |
+  | --- | --- |
+  | `sandbox-mach` | **不要改成 `--headless`**（有头无头共用 Mach IPC，改了一样失败）→ **申请提权** → 以**有头**重新探测 → 仍失败则**停下来让用户选**（自己到终端跑 / 接受无头） |
+  | `no-display` | 无头确实可用，但**仍须先告知用户**再降级 |
+
+  目标是让 agent **不需要额外说明就照做** —— 此前用户不得不每次叮嘱
+  「申请更宽权限后重试有头，而不是改成无头」。
+
+- **计划骨架新增必填的「浏览器可见性」项**，要求写明能否弹窗口、
+  是否已提权重试、用户选择了哪种处理方式。
+
+### 说明
+
+`probeLaunch` 需要真实浏览器，无法单元测试；但「哪种失败允许换无头」这一判断
+由 `browser-errors.mjs` 纯函数给出，测试会校验文档与分类器在这一点上不漂移。
+
 ## [1.6.0] - 2026-09-19
 
 ### 修复
@@ -235,7 +264,8 @@
 - 通过率的分母是实际执行的用例数，未自动化用例不计入，单独列出
 - 不做单元测试、接口测试、性能压测、视觉回归、CI 平台对接
 
-[未发布]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.6.0...HEAD
+[未发布]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.3.0...v1.4.0

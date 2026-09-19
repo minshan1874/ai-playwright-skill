@@ -320,6 +320,12 @@ export function renderPlanSkeleton(input) {
   lines.push('');
   lines.push('<!-- 请在此说明：登录方式、测试数据准备、执行顺序、需要人工介入的环节 -->');
   lines.push('');
+  lines.push(
+    '- **浏览器可见性**：<!-- 必填，取自阶段 0 的 launch 结果。' +
+      '能弹窗口就写「有头，测试人员可看到执行全过程」；' +
+      '弹不出就写清原因、是否已提权重试、以及用户选择了哪种处理方式 -->',
+  );
+  lines.push('');
   lines.push('## 4. 风险与不确定项');
   lines.push('');
   lines.push('<!-- 请在此列出：验证码、短信、第三方依赖、动态数据、环境不稳定等 -->');

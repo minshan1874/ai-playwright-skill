@@ -5,178 +5,242 @@
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 [![Playwright](https://img.shields.io/badge/playwright-1.63.0-2EAD33.svg)](https://playwright.dev)
 
-> 一个 DSH Skill：把「被测网址 + 功能测试用例」变成「测试计划 → 你确认 → 自动执行 → 测试报告」。
+> **给 AI 一个网址和一份测试用例表，它自动跑完端到端测试，交给你一份测试报告。**
 
-给 AI 一个网址和一份 Excel/CSV 用例表，它会先出一份测试计划给你过目，
-你确认后才真正开始跑，最后交付一份可追溯的测试报告。
-
-**任何人都能直接用** —— 环境（Playwright + 浏览器）由 skill 自己装，不需要你敲命令。
+你不需要写一行代码，不需要装 Playwright，不需要懂定位器。
+把材料丢给 AI，确认一下计划，剩下的事它做完。
 
 ---
 
-## 30 秒上手
+## 三步上手
+
+### 第 1 步 · 安装（只需一次）
+
+打开终端，复制粘贴这两行：
 
 ```bash
-# 1. 克隆并安装到 DSH（全局，任何项目都能用）
 git clone https://github.com/minshan1874/ai-playwright-skill.git
-cd ai-playwright-skill
-./install.sh
-
-# 2. 新开一个 DSH 会话，然后直接说：
-#    「用 playwright-e2e 测一下 https://your-app.com，用例文件是 ~/Desktop/用例.xlsx」
+cd ai-playwright-skill && ./install.sh
 ```
 
-或者用斜杠命令显式调用：
+看到 `✅ 已安装到：...` 就成功了。
+
+- 用 **Codex** 的话，把最后一行换成 `./install.sh --codex`
+- 两个都用？`./install.sh --all`
+- **Windows** 请在 Git Bash 或 WSL 里执行
+- 以后升级只需 `git pull && ./install.sh --update`
+
+装完**新开一个 AI 会话**，它就能看到这个 skill 了。
+
+### 第 2 步 · 把网址和用例丢给 AI
+
+新开会话，把下面这段话复制过去，**改成你自己的网址和文件路径**：
 
 ```
-/playwright-e2e
+用 playwright-e2e 这个 skill 帮我做端到端自动化测试。
+
+被测网址：https://你的网站.com
+测试用例：/Users/你的用户名/Desktop/测试用例.xlsx
+
+请先解析用例并给我一份测试计划，我确认后你再自动执行，最后输出测试报告。
 ```
 
-没有用例表也能用 —— 直接把功能点用文字说清楚即可，AI 会帮你结构化。
+就这些。没有别的配置要写。
 
-不想动真实系统，先跑内置演示看效果：
+### 第 3 步 · 确认计划，然后等报告
 
-```bash
-npm run demo
-```
+AI 会先给你一份**测试计划**（要测什么、不测什么、哪些用例能自动化、有什么风险），
+**停下来等你确认**。
 
-演示会走完整流程，并**和真实运行一样弹出浏览器窗口**（检测到 CI 环境变量时自动无头）。
+你回一句「确认」，它才开始真正跑。跑的时候**会弹出浏览器窗口**，
+你能亲眼看着它一条条执行。
+
+跑完给你一份测试报告：通过多少、失败哪些、为什么失败、还有哪些没覆盖。
 
 ---
 
-## 它是怎么工作的
+## AI 会怎么和你配合
 
 ```
-阶段 0  环境自检       自动检查 Node / Playwright / 浏览器，缺什么装什么
-   ↓
-阶段 1  解析用例       读取 Excel/CSV/Markdown，生成结构化用例 + 测试计划
-   ↓
-阶段 2  ⏸ 等你确认     ★ 硬门禁：没你点头，绝不执行
-   ↓
-阶段 3  探索页面       真实打开浏览器，抓截图、语义树、可用定位器
-   ↓
-阶段 4  固化用例       把测试计划写成可复现的 Playwright 用例
-   ↓
-阶段 5  执行测试       跑起来，实时输出进度
-   ↓
-阶段 6  输出报告       Markdown 报告 + Playwright HTML 报告 + JSON 结果
+你发出网址 + 用例表
+      ↓
+AI 检查环境（缺 Playwright/浏览器会自动装）
+      ↓
+AI 解析用例，生成测试计划
+      ↓
+⏸  AI 停下来，把计划给你看  ← 只有你说「确认」才会继续
+      ↓
+AI 打开浏览器，逐条执行用例（你看得见）
+      ↓
+📄 输出测试报告
 ```
 
-### 关于那个「硬门禁」
-
-这是整个流程最重要的设计：**计划没被确认，测试就不会执行。**
-
-- AI 产出计划后必须停下来把计划给你看；
-- 你说「确认」后，AI 才能打开执行闸门；
-- 执行脚本自己也会校验计划文件的状态行 —— 绕过对话也绕不过脚本。
-
-所以你不会遇到「AI 自作主张跑了一堆测试然后给你一个你看不懂的报告」。
+**那个暂停是故意的。** 它是你和 AI 之间唯一的确认点 —— 计划不对就当场改，
+不会出现「AI 自作主张跑了一堆然后给你一份看不懂的报告」。计划不满意就直接说，
+改完它会再让你确认一次。
 
 ---
 
-## 安装
+## 你要准备什么
 
-### 全局安装（推荐）
+就两样：**一个能访问的网址** + **一份测试用例表**。
 
-```bash
-./install.sh            # DSH → ~/.dsh/skills/playwright-e2e/
-./install.sh --codex    # Codex → ~/.codex/skills/playwright-e2e/
-./install.sh --all      # 两个都装
-```
-
-装好后**任何项目、任何会话**都能用。
-
-### 只给当前项目装
-
-```bash
-./install.sh --project
-```
-
-装到 `./.dsh/skills/playwright-e2e/`。
-
-### 其它选项
-
-| 命令 | 作用 |
-| --- | --- |
-| `./install.sh --update` | **就地覆盖更新所有已发现的副本**（含装错目录名的） |
-| `./install.sh --status` | 检查各处副本是否为最新版，不安装 |
-| `./install.sh --link` | 软链接到本仓库，改代码立即生效（开发用） |
-| `./install.sh --force` | 覆盖已存在的安装（只覆盖指定目标） |
-| `./install.sh --target <目录>` | 装到指定目录 |
-| `./uninstall.sh` | 移除 skill（保留运行数据） |
-| `./uninstall.sh --purge` | 连同依赖、历史记录、登录态一起删除 |
-
-### 更新已安装的版本
-
-```bash
-git pull
-./install.sh --update        # 就地覆盖所有副本，不需要指定路径
-./install.sh --status        # 确认都是最新版
-```
-
-`--update` 会按 `SKILL.md` 的 `name` **扫描所有技能根目录**（DSH、Codex、项目级），
-把找到的每一份副本就地覆盖成当前源码 —— **包括装错目录名的副本**，所以不需要知道
-它们在哪，也不用先手动删。
-
-替换采用「暂存目录 + 交换」：中途失败会自动回滚到原状，不会留下半拷贝状态。
-
-> **为什么不能只拷 `SKILL.md`？** 手工拷贝很容易只更新文档、留下旧脚本，结果 skill
-> 「看起来是新版、实际跑的是旧代码」—— 行为和新文档对不上，且极难排查。
-> 一律用 `--update`，并用 `--status` 复核。
-
-安装或更新后**新开一个会话**即可（skill 目录会被自动扫描，不需要重启服务）。
-
----
-
-## 环境要求
-
-| 项目 | 要求 | 说明 |
-| --- | --- | --- |
-| Node.js | ≥ 20 | Playwright 1.63 的硬性要求 |
-| npm | 任意近期版本 | 用于安装 Playwright 依赖 |
-| 操作系统 | macOS / Linux / Windows | 自动适配浏览器缓存路径 |
-| 磁盘 | 约 400 MB | 依赖约 250 MB + Chromium 约 150 MB |
-
-**第一次使用时会自动安装**，无需手工操作。默认只装 Chromium；
-需要 Firefox / WebKit 时 AI 会先告诉你下载体积再征求同意。
-
----
-
-## 用例表格式
-
-支持 `.xlsx`、`.csv` 和 Markdown 表格。标准列：
+用例表支持 Excel（`.xlsx`）、CSV 和 Markdown 表格。标准列长这样：
 
 | 用例ID | 模块 | 用例标题 | 优先级 | 前置条件 | 操作步骤 | 预期结果 | 测试数据 | 标签 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | TC-001 | 登录 | 正确账号密码登录成功 | P0 | | 打开登录页\|输入账号密码\|点击登录 | 登录成功并跳转到工作台 | 用户名=admin; 密码=123456 | smoke |
 
-只有 **用例标题** 和 **操作步骤** 是必需的。
+**只有「用例标题」和「操作步骤」是必须填的**，其余留空也能跑。
 
-- 多值用**单元格内换行**，或用 `|` 分隔，或写 `1. 2. 3.`
-- 预期结果写 1 条 = 整条用例的总体预期；写多条 = 与步骤一一对应
-- 列名容错：`测试步骤`/`steps`/`操作过程` 都识别为「操作步骤」
+- 多个步骤用**单元格内换行**，或用 `|` 分隔，或写成 `1. 2. 3.`
+- 「预期结果」写 1 条＝整条用例的总体预期；写多条＝和步骤一一对应
+- 列名很宽容：`测试步骤`、`steps`、`操作过程` 都认
 
-模板文件：
+**没填过？直接用模板**：下载 [`case-template.xlsx`](skill/assets/case-template.xlsx)，
+里面有一张「列说明」工作表，照着填就行。
 
-- `skill/assets/case-template.xlsx` —— 带列说明的 Excel 模板
-- `skill/assets/case-template.csv` —— CSV 版本
-
-完整规则见 [`skill/references/case-format.md`](skill/references/case-format.md)。
+> 已经有现成的用例表？**直接发给 AI 就行**，不用改格式。
+> 列名对不上它会告诉你，并列出它期望的列名。
 
 ---
 
-## 配置
+## 测试报告长什么样
 
-需要登录、多浏览器、自定义超时时，给 AI 一个 `e2e.config.json`：
+报告是 Markdown，可以直接贴进文档或工作群。核心内容：
+
+```
+## 一、测试结论
+### ❌ 未通过
+- 1 条用例失败。
+
+| 通过 | 失败 | 不稳定 | 跳过 | 未自动化 | 通过率 |
+| 3 | 1 | 0 | 0 | 1 | 75% |
+
+## 二、用例执行明细   ← 按模块分组，逐条列出状态
+## 三、失败详情       ← 错误信息 + 失败截图 + trace 回放文件
+## 四、未自动化用例   ← 覆盖缺口，单独列出
+## 附件索引          ← HTML 报告、JSON 结果
+```
+
+**两个要点：**
+
+**未自动化的用例不计入通过率。** 比如 18 条用例里有 4 条因为验证码、短信、真实支付
+没法自动化，通过率的计算基数就是实际跑的 14 条 —— 那 4 条单独列在第四节。
+这样「跑了 3 条全过」不会被误读成「18 条全过」。
+
+**每条失败都有证据。** 失败截图、以及可以逐步回放的 trace 文件
+（能看到每一步的页面快照、网络请求、控制台输出）。
+
+报告之外还有一份 **Playwright HTML 报告**，可以在浏览器里交互式查看。
+
+---
+
+## 我该怎么问 AI
+
+**需要登录的系统** —— 直接说清楚就行：
+
+```
+用 playwright-e2e 测 https://你的网站.com，用例在 用例.xlsx。
+
+系统需要登录，测试账号是 testuser / Test@123，登录页是 /login。
+```
+
+AI 会配置成「登录一次，后续所有用例复用登录态」，不会每条用例重新登。
+密码它只通过环境变量传递，不会写进任何文件或报告。
+
+**没有用例表，只有功能点** —— 也能用：
+
+```
+用 playwright-e2e 测 https://你的网站.com。
+
+我想验证：商品搜索、加入购物车、下单流程。
+没有现成用例表，你先根据页面帮我整理出用例，给我看计划。
+```
+
+**只想跑一部分** —— 告诉它用例 ID 或模块名：
+
+```
+只跑 TC-001 到 TC-005 这几条。
+```
+
+---
+
+## 常见问题
+
+**Q：需要我提前装 Playwright 或浏览器吗？**
+不用。第一次使用时会自动安装，约 400 MB，AI 会先告诉你再动手。
+你机器上已有的浏览器缓存会被复用，不会重复下载。
+
+**Q：我的电脑要满足什么条件？**
+Node.js 20 或更高版本（`node -v` 可以查），以及约 400 MB 磁盘空间。
+macOS / Linux / Windows 都支持。
+
+**Q：会不会改我的项目文件？**
+不会。测试代码、依赖、截图、报告全写在独立目录
+（`~/.dsh/playwright-e2e/runs/`），**你的项目目录一个文件都不会动**。
+
+**Q：AI 会不会自己就开始跑了？**
+不会。必须先给你看测试计划、等你确认。执行脚本自己也会校验计划状态 ——
+绕过对话也绕不过脚本。
+
+**Q：跑的时候我能看到吗？**
+能，**而且是默认行为**。执行时会真的弹出浏览器窗口，鼠标点哪儿、填了什么、
+页面怎么跳转，全程可见。
+
+嫌快看不清，跟 AI 说一句「用 `--slow-mo 500` 放慢」，每个操作会停 500 毫秒。
+
+**Q：验证码、短信登录能测吗？**
+不能自动化的用例会被**如实标为「未自动化」**，单独列在报告第四节并说明原因 ——
+不会伪造一个「通过」骗你。这类功能建议保留人工回归。
+
+**Q：失败的是产品缺陷还是用例写错了？**
+报告里只给事实（实际值 vs 期望值、截图、trace）。判断方法：
+如果换个定位器或加个等待就通过了，多半是用例问题；如果断言值和实际值有明确的
+业务差异，或者是页面报错、接口 4xx/5xx，那更可能是产品缺陷。
+
+**Q：能测多个浏览器吗？**
+能。默认只测 Chromium，要加上 Firefox / WebKit 就跟 AI 说，
+它会先告诉你下载体积再征求同意。
+
+**Q：报告能接 CI 吗？**
+能，`results-summary.json` 是稳定的机器可读格式。但本 skill 本身不做 CI 平台对接。
+
+---
+
+## 浏览器窗口相关
+
+默认就是**有头模式**（弹窗口），这是为了让你能看到执行过程。
+
+| 场景 | 做法 |
+| --- | --- |
+| 正常情况 | **什么都不用加**，自动弹窗口 |
+| 嫌太快看不清 | 让 AI 加 `--slow-mo 500` |
+| 不想弹窗 | 让 AI 加 `--headless` |
+| CI / 服务器 / SSH 远程 | 必须 `--headless`（那些环境没有显示服务） |
+
+AI 在开始前会**主动探测**当前环境能不能弹窗口，弹不出来会先告诉你，
+不会悄悄换成无头让你事后才发现看不到过程。
+
+> macOS 上如果 AI 报告「浏览器启动失败、`bootstrap_check_in` 权限错误」，
+> 那是沙箱限制而非配置错误。AI 会申请更宽权限后重试有头模式 ——
+> 这种情况换无头也没用（有头无头共用同一套进程通信）。
+
+---
+
+## 进阶
+
+需要多浏览器、自定义超时、忽略证书错误等，给 AI 一个 `e2e.config.json`：
 
 ```json
 {
   "baseURL": "https://your-app.example.com",
-  "browsers": ["chromium"],
+  "browsers": ["chromium", "firefox"],
   "headless": false,
-  "slowMo": 0,
+  "slowMo": 300,
   "timeout": 30000,
   "retries": 1,
+  "ignoreHTTPSErrors": false,
   "auth": {
     "enabled": true,
     "loginUrl": "/login",
@@ -187,183 +251,21 @@ git pull
 }
 ```
 
-样例见 `skill/assets/e2e.config.example.json`。
+完整样例见 [`e2e.config.example.json`](skill/assets/e2e.config.example.json)。
 
-**凭据安全**：密码写成 `${E2E_USERNAME}` / `${E2E_PASSWORD}` 占位符，
-通过环境变量注入。skill 不会把密码写进任何生成的文件、报告或截图名。
-
-登录一次后会保存 `storageState` 供后续所有用例复用，不必每条用例重新登录。
+**不用这个文件也能跑** —— 只有需要精细控制时才用。AI 会在计划阶段问你。
 
 ---
 
-## 能看到浏览器在做什么吗
+## 遇到问题
 
-**能，而且是默认行为。** 测试执行时会真的弹出浏览器窗口，你能看着它一步步操作。
-
-| 参数 | 效果 |
+| 现象 | 怎么办 |
 | --- | --- |
-| （默认） | 弹出窗口，全程可见 |
-| `--slow-mo 500` | 每个操作放慢 500ms，肉眼跟得上 |
-| `--headless` | 不弹窗口 |
-
-```bash
-# 放慢看
-node "$SKILL/scripts/run.mjs" --run-dir "<runDir>" --slow-mo 500
-
-# 无显示环境（CI、服务器、SSH 远程机器）
-node "$SKILL/scripts/run.mjs" --run-dir "<runDir>" --headless
-```
-
-> **CI / 服务器必须加 `--headless`。** 那些环境没有显示服务，有头模式会直接启动失败。
-> 报错关键词：`cannot open display`、`Missing X server`。
-
-**无头模式不等于看不见。** 截图、trace、HTML 报告照常产出。用 trace viewer 可以
-逐步回放每一个操作，附带当时的 DOM 快照、网络请求和控制台输出 ——
-排查问题时比盯着屏幕信息量更大：
-
-```bash
-node ~/.dsh/playwright-e2e/node_modules/playwright/cli.js show-trace "<trace 文件>"
-```
-
----
-
-## 产物放在哪
-
-**不会碰你的项目。** 所有东西都在独立运行目录里：
-
-```
-~/.dsh/playwright-e2e/                 # 可用 PLAYWRIGHT_E2E_HOME 改位置
-├── node_modules/                      # Playwright 依赖（装一次）
-├── auth/<项目>.json                   # 复用的登录态
-└── runs/<项目>-<时间戳>/
-    ├── plan.md                        # 你确认过的测试计划
-    ├── cases.json                     # 解析后的用例
-    ├── explore/                       # 截图、语义树、定位器候选
-    ├── specs/*.spec.ts                # 固化后的用例
-    ├── test-results/                  # 结果 JSON + 失败截图 + trace
-    ├── playwright-report/index.html   # Playwright 原生 HTML 报告
-    ├── results-summary.json           # 归一化结果，可接 CI
-    └── report.md                      # 最终测试报告
-```
-
-### 报告包含什么
-
-- 结论（通过 / 未通过 / 部分覆盖）与通过率
-- 按模块分组的用例明细
-- 失败详情：错误信息、截图、trace 路径
-- **未自动化用例清单及原因** —— 覆盖缺口会单独列出，不会被通过率掩盖
-
-> 通过率的分母是**实际执行的用例数**。未自动化的用例不计入通过率，
-> 而是单独列出，避免「跑了 3 条全过」被读成「18 条全过」。
-
----
-
-## 离线验证
-
-不想动真实系统？跑内置演示：
-
-```bash
-node skill/scripts/demo.mjs
-```
-
-它会在本地起一个演示站，完整走一遍 解析 → 计划 → 确认 → 探索 → 执行 → 报告，
-结果里**故意包含 1 条失败和 1 条未自动化**，用来演示报告如何呈现这两种情况。
-
----
-
-## 常见问题
-
-**Q：会不会改我的项目文件？**
-不会。测试代码、依赖、截图、报告全在 `~/.dsh/playwright-e2e/` 下。
-
-**Q：AI 会不会自己就开始跑测试？**
-不会。计划必须先经你确认，执行脚本也会机械校验计划状态。
-
-**Q：需要我提前装 Playwright 吗？**
-不需要。第一次使用时 skill 会自己装。你机器上已有的浏览器缓存会被复用，不会重复下载。
-
-**Q：公司网络需要代理怎么办？**
-设置 `npm_config_proxy` / `npm_config_https_proxy` / `HTTPS_PROXY` 后让 AI 重试即可。
-见 [`skill/references/troubleshooting.md`](skill/references/troubleshooting.md)。
-
-**Q：报错说无法写入 `~/.dsh/...`？**
-那是 agent 沙箱限制，不是磁盘权限问题。两个办法：批准提权，或指定可写目录：
-
-```bash
-export PLAYWRIGHT_E2E_HOME="$PWD/.playwright-e2e"
-```
-
-**Q：验证码 / 短信登录能测吗？**
-不能自动化的用例会被如实标为「未自动化」，在报告里单独列出并说明原因 ——
-不会伪造一个「通过」。
-
-**Q：支持多浏览器吗？**
-支持。默认 Chromium，配 `"browsers": ["chromium", "firefox", "webkit"]` 即可。
-Firefox/WebKit 需要额外下载，AI 会先征求你同意。
-
-**Q：能接 CI 吗？**
-`results-summary.json` 是稳定的机器可读格式，可以直接用。但本 skill 不做 CI 平台对接。
-
----
-
-## 开发
-
-```bash
-npm test          # 200+ 个单元测试（node:test，零依赖，秒级完成）
-npm run demo      # 离线全链路演示（会下载 Chromium）
-npm run template  # 由 CSV 重新生成 Excel 模板
-npm run bootstrap # 环境自检与安装
-```
-
-### 仓库结构
-
-```
-skill/                    ← 会被整体安装到 ~/.dsh/skills/playwright-e2e/
-├── SKILL.md              # AI 读的主流程（含三条铁律）
-├── references/           # 工作流、用例格式、定位器规范、计划/报告模板、排查手册
-├── scripts/              # CLI 入口：bootstrap / new-run / parse-cases / make-plan
-│                         # confirm-plan / explore / run / report / make-template / demo
-│   └── lib/              # 纯函数模块（单元测试的主要目标）
-│                         # paths / config / cases / csv / spreadsheet / locators
-│                         # results / report / plan / toolchain / deps / playwright-config
-└── assets/               # 用例模板、spec 骨架、配置样例、离线演示站
-
-tests/                    # 单元测试 + skill 清单校验
-.github/                  # CI、issue 模板、PR 模板
-```
-
-**分层约定**：`scripts/*.mjs` 负责参数解析、I/O 和错误呈现；
-`scripts/lib/*.mjs` 负责纯逻辑。新逻辑尽量写进 `lib/` —— 那里才测得动。
-详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
-### 设计上的几个关键决定
-
-- **计划门禁是机械的**：`plan.md` 的状态行由 `confirm-plan.mjs` 写入，
-  `run.mjs` 执行前校验。光靠指令约束 AI 是不够的。
-- **依赖装在独立 home**：脚本从 `<home>/node_modules` 显式解析依赖
-  （见 `lib/deps.mjs`），所以 skill 目录可以随时重装而不影响已装好的环境。
-- **钉死 Playwright 1.63.0**：与常见浏览器缓存版本对齐，避免首次使用就下载几百 MB。
-  可用 `PLAYWRIGHT_VERSION` 覆盖。
-- **npm 缓存重定向**到 `<home>/.npm-cache`：绕开宿主机 `~/.npm` 的权限与沙箱问题。
-- **报告渲染是纯函数**：`renderReport(plan, cases, results, config)`，
-  所以报告格式有单元测试覆盖，不需要跑浏览器。
-- **拒绝接管他人目录**：运行目录里已有非本 skill 的 `package.json` 时，
-  `bootstrap.mjs` 会拒绝安装而不是覆盖它。
-
-更多细节见 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
----
-
-## 安全
-
-这个工具会驱动真实浏览器，并需要处理登录凭据。要点：
-
-- 账号密码**只通过环境变量传递**，不写入任何生成的文件
-- `auth/<项目>.json`（Playwright 的 `storageState`）**含真实会话 Cookie**，
-  默认在 `~/.dsh/playwright-e2e/auth/`，`.gitignore` 已忽略
-- 对生产环境跑测试前，请确认用例不会产生真实副作用
-
-完整说明见 [SECURITY.md](SECURITY.md)。
+| AI 说找不到 skill | 装完**新开一个会话**；确认 `~/.dsh/skills/playwright-e2e/` 或 `~/.codex/skills/playwright-e2e/` 存在 |
+| 用例表解析报错 | 把报错原文发给 AI，它会列出期望的列名 |
+| 浏览器窗口没弹出来 | 问 AI「为什么没弹窗口」，它会在报告和说明里给出原因 |
+| 行为和新文档对不上 | 装的可能是旧版：`./install.sh --status` 查看，`./install.sh --update` 更新 |
+| 其它任何报错 | 把完整输出发给 AI，或看[排查手册](skill/references/troubleshooting.md) |
 
 ---
 
@@ -371,20 +273,21 @@ tests/                    # 单元测试 + skill 清单校验
 
 单元测试、接口/API 测试、性能压测、视觉回归、CI 平台对接、测试管理平台同步。
 
-需要这些时请用专门的工具 —— 用 E2E 去凑只会得到又慢又脆的测试。
+需要这些请用专门的工具 —— 用端到端测试去凑只会得到又慢又脆的用例。
 
 ---
 
-## 参与贡献
+## 开发者
 
-欢迎提 issue 和 PR。开始之前请读 [CONTRIBUTING.md](CONTRIBUTING.md) ——
-里面有五条不可违反的设计约束，以及加脚本、写测试的约定。
+`playwright-e2e` 是一个 DSH / Codex Skill。仓库结构、设计约束、
+如何加脚本和写测试，见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ```bash
-npm test    # 200+ 个单元测试，零依赖，秒级完成
+npm test          # 270+ 个单元测试，零依赖，秒级完成
+npm run demo      # 离线全链路演示（会弹出浏览器窗口）
 ```
 
-发现安全问题时请走[私密报告渠道](SECURITY.md#报告安全漏洞)，不要开公开 issue。
+安全与凭据处理见 [SECURITY.md](SECURITY.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 

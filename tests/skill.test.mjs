@@ -356,13 +356,21 @@ describe('repository hygiene', () => {
     // and only shows up when a reader clicks. Tags and commits are both local, so
     // this is checkable without the network.
     let tags;
+    let shallow;
     try {
       tags = new Set(
         execFileSync('git', ['tag', '-l'], { cwd: ROOT, encoding: 'utf8' }).split('\n').filter(Boolean),
       );
+      shallow =
+        execFileSync('git', ['rev-parse', '--is-shallow-repository'], { cwd: ROOT, encoding: 'utf8' }).trim() ===
+        'true';
     } catch {
       return; // Not a git checkout — nothing to verify.
     }
+    // A shallow clone (CI default, `git clone --depth 1`) has no tags and no
+    // history, so absence proves nothing. Reporting a failure here would be a
+    // false alarm; CI is configured to fetch both.
+    if (shallow) return;
 
     const changelog = fs.readFileSync(path.join(ROOT, 'CHANGELOG.md'), 'utf8');
     const links = [...changelog.matchAll(/^\[([^\]]+)\]:\s*(\S+)$/gm)];
@@ -373,7 +381,9 @@ describe('repository hygiene', () => {
       // `compare/vX...vY` and `releases/tag/vX` reference tags by name.
       // Match the full dotted version — `[^.\s]*` would stop at the first dot.
       for (const tag of url.matchAll(/(?:compare|releases\/tag)\/(v[0-9]+(?:\.[0-9]+)*)/g)) {
-        if (!tags.has(tag[1])) problems.push(`[${label}] 引用了不存在的 tag ${tag[1]}`);
+        if (tags.size > 0 && !tags.has(tag[1])) {
+          problems.push(`[${label}] 引用了不存在的 tag ${tag[1]}`);
+        }
       }
       // Short SHAs in compare ranges must resolve to a commit.
       for (const sha of url.matchAll(/compare\/([0-9a-f]{7,})\.\.\.([0-9a-f]{7,})/g)) {

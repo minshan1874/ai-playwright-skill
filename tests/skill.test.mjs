@@ -351,6 +351,55 @@ describe('repository hygiene', () => {
     assert.ok(attributes.includes('eol=lf'), '应统一换行符，避免跨平台 diff 噪音');
   });
 
+  it('points every CHANGELOG link at something that exists', () => {
+    // Version comparison links rot the moment a tag is missing: the 404 is silent
+    // and only shows up when a reader clicks. Tags and commits are both local, so
+    // this is checkable without the network.
+    let tags;
+    try {
+      tags = new Set(
+        execFileSync('git', ['tag', '-l'], { cwd: ROOT, encoding: 'utf8' }).split('\n').filter(Boolean),
+      );
+    } catch {
+      return; // Not a git checkout — nothing to verify.
+    }
+
+    const changelog = fs.readFileSync(path.join(ROOT, 'CHANGELOG.md'), 'utf8');
+    const links = [...changelog.matchAll(/^\[([^\]]+)\]:\s*(\S+)$/gm)];
+    assert.ok(links.length >= 5, `CHANGELOG 只有 ${links.length} 条链接定义`);
+
+    const problems = [];
+    for (const [, label, url] of links) {
+      // `compare/vX...vY` and `releases/tag/vX` reference tags by name.
+      // Match the full dotted version — `[^.\s]*` would stop at the first dot.
+      for (const tag of url.matchAll(/(?:compare|releases\/tag)\/(v[0-9]+(?:\.[0-9]+)*)/g)) {
+        if (!tags.has(tag[1])) problems.push(`[${label}] 引用了不存在的 tag ${tag[1]}`);
+      }
+      // Short SHAs in compare ranges must resolve to a commit.
+      for (const sha of url.matchAll(/compare\/([0-9a-f]{7,})\.\.\.([0-9a-f]{7,})/g)) {
+        for (const one of [sha[1], sha[2]]) {
+          try {
+            execFileSync('git', ['rev-parse', '--verify', '--quiet', `${one}^{commit}`], {
+              cwd: ROOT,
+              stdio: 'pipe',
+            });
+          } catch {
+            problems.push(`[${label}] 引用了不存在的提交 ${one}`);
+          }
+        }
+      }
+    }
+    assert.deepEqual(problems, [], problems.join('\n'));
+  });
+
+  it('defines a link for every version heading in the CHANGELOG', () => {
+    const changelog = fs.readFileSync(path.join(ROOT, 'CHANGELOG.md'), 'utf8');
+    const headings = [...changelog.matchAll(/^## \[([^\]]+)\]/gm)].map((m) => m[1]);
+    const defined = new Set([...changelog.matchAll(/^\[([^\]]+)\]:/gm)].map((m) => m[1]));
+    const missing = headings.filter((name) => !defined.has(name));
+    assert.deepEqual(missing, [], `CHANGELOG 缺少链接定义：${missing.join(', ')}`);
+  });
+
   it('links the CI workflow from the README', () => {
     // A live CI badge beats a hardcoded test count, which goes stale silently.
     const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');

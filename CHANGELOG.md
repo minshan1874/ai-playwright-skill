@@ -7,6 +7,16 @@
 
 ## [未发布]
 
+### 修复
+
+- **CHANGELOG 的历史版本链接全部 404**。链接写的是 `compare/v1.6.0...v1.7.0`
+  这类形式，但本仓库只给当前版本打了 tag（`v1.7.0`），历史 tag 并不存在 ——
+  点进去就是 404，而且只有在读者点击时才暴露。
+
+  改为：`v1.7.0` 指向 Release 页，`1.0.0`–`1.6.0` 指向对应提交区间。
+  并加测试校验：从 CHANGELOG 里抽出所有 `compare/vX...vY` 与 `releases/tag/vX`
+  引用，断言每个 tag 都真实存在（tag 与提交都在本地，不需要联网）。
+
 ### 文档
 
 - **README 重写为面向软件测试工程师的傻瓜式指南**（393 行 → 296 行）。
@@ -281,12 +291,12 @@
 - 不做单元测试、接口测试、性能压测、视觉回归、CI 平台对接
 
 [未发布]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.7.0...HEAD
-[1.7.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.6.0...v1.7.0
-[1.6.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.5.0...v1.6.0
-[1.5.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.4.0...v1.5.0
-[1.4.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.3.0...v1.4.0
-[1.3.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.2.0...v1.3.0
-[1.2.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.1.0...v1.2.0
-[1.1.0]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.0.1...v1.1.0
-[1.0.1]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.0.0...v1.0.1
-[1.0.0]: https://github.com/minshan1874/ai-playwright-skill/releases/tag/v1.0.0
+[1.7.0]: https://github.com/minshan1874/ai-playwright-skill/releases/tag/v1.7.0
+[1.6.0]: https://github.com/minshan1874/ai-playwright-skill/compare/c0159f1...7a30c47
+[1.5.0]: https://github.com/minshan1874/ai-playwright-skill/compare/ce232aa...c0159f1
+[1.4.0]: https://github.com/minshan1874/ai-playwright-skill/compare/b21a810...ce232aa
+[1.3.0]: https://github.com/minshan1874/ai-playwright-skill/compare/7cbfdd2...b21a810
+[1.2.0]: https://github.com/minshan1874/ai-playwright-skill/compare/2d6d3b0...7cbfdd2
+[1.1.0]: https://github.com/minshan1874/ai-playwright-skill/compare/52bd281...2d6d3b0
+[1.0.1]: https://github.com/minshan1874/ai-playwright-skill/compare/5498b5b...52bd281
+[1.0.0]: https://github.com/minshan1874/ai-playwright-skill/commit/5498b5b

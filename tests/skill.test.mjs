@@ -216,12 +216,58 @@ describe('repository hygiene', () => {
     assert.match(demo, /flags\.headed !== true && isCI\(\)/, 'CI 时无头，其余情况有头');
   });
 
-  it('documents headed mode in the skill instructions', () => {
-    // If SKILL.md never mentions it, the agent cannot tell the user how to watch.
+  it('states that the default is headed, so testers can watch the run', () => {
+    // This is the product promise: out of the box, a window opens and a tester
+    // can watch each case execute. An agent once rewrote this to "depends on
+    // config", which quietly voids the promise — hence the guard.
     const skill = fs.readFileSync(SKILL_FILE, 'utf8');
-    assert.ok(skill.includes('--headed'), 'SKILL.md 必须说明怎么开窗口观看');
-    assert.ok(skill.includes('--headless'), 'SKILL.md 必须说明服务器/CI 上要用 --headless');
-    assert.ok(skill.includes('--slow-mo'), 'SKILL.md 必须说明怎么放慢以便肉眼跟');
+    const section = skill.slice(skill.indexOf('### 浏览器可见性'));
+    const body = section.slice(0, section.indexOf('\n### ', 1));
+
+    assert.ok(body, 'SKILL.md 缺少「浏览器可见性」一节');
+    assert.match(
+      body,
+      /开箱即用就是有头|默认是有头|默认.*有头模式/,
+      '必须明确写出默认是有头模式，不能只说「由配置决定」',
+    );
+    assert.match(body, /--headless/, '必须说明无显示环境用 --headless');
+    assert.match(body, /--slow-mo/, '必须说明怎么放慢以便肉眼跟随');
+    assert.match(
+      body,
+      /测试人员|用户.*看到|全过程/,
+      '必须点明目的是让测试人员看到执行过程',
+    );
+    assert.ok(
+      !/^\*\*默认由配置决定/m.test(body),
+      '不得把默认描述成「由配置决定」——那会让人以为默认不弹窗口',
+    );
+  });
+
+  it('forbids editing an installed copy in place', () => {
+    // An agent editing ~/.codex/skills/*/SKILL.md forks the copy from the source:
+    // the version number starts lying and the next --update silently reverts it.
+    const skill = fs.readFileSync(SKILL_FILE, 'utf8');
+    assert.match(skill, /不要直接修改安装副本里的文件/);
+    assert.match(skill, /install\.sh --update|CONTRIBUTING\.md/);
+  });
+
+  it('reserves --skip-plan-check for maintainers', () => {
+    const skill = fs.readFileSync(SKILL_FILE, 'utf8');
+    const hit = skill.match(/`--skip-plan-check`[^\n]*/);
+    assert.ok(hit, 'SKILL.md 未提及 --skip-plan-check');
+    assert.match(hit[0], /维护者/, '必须写明 --skip-plan-check 只供维护者使用');
+  });
+
+  it('does not hardcode a single install path for $SKILL', () => {
+    // The skill installs under DSH, Codex, or a project — a hardcoded
+    // `SKILL=~/.dsh/...` is simply wrong in the other two.
+    for (const file of [SKILL_FILE, path.join(SKILL_DIR, 'references', 'troubleshooting.md')]) {
+      const text = fs.readFileSync(file, 'utf8');
+      assert.ok(
+        !/^SKILL=~\/\.dsh/m.test(text),
+        `${path.relative(ROOT, file)} 把 $SKILL 硬编码成了 DSH 路径`,
+      );
+    }
   });
 
   it('gives the CI demo job a deterministic browser cache path', () => {

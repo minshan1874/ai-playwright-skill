@@ -270,7 +270,7 @@ trace 文件路径在报告的失败详情里，或 `<runDir>/test-results/` 下
 ## 7. 诊断命令速查
 
 ```bash
-SKILL=~/.dsh/skills/playwright-e2e
+SKILL="<本 skill 的基础目录>"     # DSH 通常是 ~/.dsh/skills/playwright-e2e
 
 # 环境状态（只读，不写任何文件）
 node "$SKILL/scripts/bootstrap.mjs" --check --json

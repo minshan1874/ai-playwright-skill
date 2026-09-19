@@ -65,6 +65,34 @@ skill_name() {
   awk '/^name:[[:space:]]*/{print $2; exit}' "$file" | tr -d '\r'
 }
 
+# --- Content hash of a skill tree --------------------------------------------
+# Comparing only one file is not enough: an agent editing SKILL.md in place would
+# go unnoticed while the version string still claimed to match.
+_hash_tool() {
+  if command -v shasum >/dev/null 2>&1; then echo "shasum"
+  elif command -v sha1sum >/dev/null 2>&1; then echo "sha1sum"
+  else echo ""
+  fi
+}
+
+tree_hash() {
+  local dir="$1" tool
+  tool="$(_hash_tool)"
+  [[ -n "$tool" ]] || { echo "unknown"; return; }
+  (
+    cd "$dir" || exit 1
+    find . -type f \
+      -not -path './node_modules/*' \
+      -not -path './.npm-cache/*' \
+      -not -path './runs/*' \
+      -not -name '.DS_Store' \
+      -not -name '*.updating.*' \
+      -not -name '*.old.*' \
+      | LC_ALL=C sort \
+      | while IFS= read -r f; do "$tool" "$f"; done
+  ) | "$tool" | awk '{print $1}'
+}
+
 # --- Every directory holding a copy of THIS skill ----------------------------
 # Scans the roots rather than fixed paths, because a copy installed under the
 # wrong directory name (e.g. `skills/skill/`) is exactly the kind of stale
@@ -82,8 +110,9 @@ find_copies() {
 
 # --- Report every installed copy and whether it matches the source -----------
 report_status() {
-  local source_version
+  local source_version source_hash
   source_version="$(skill_version "$SOURCE_DIR/SKILL.md")"
+  source_hash="$(tree_hash "$SOURCE_DIR")"
   echo "源码版本：$source_version"
 
   local copies
@@ -95,22 +124,22 @@ report_status() {
   fi
 
   echo
-  printf "%-10s %-8s %s\n" "版本" "脚本" "路径"
+  printf "%-10s %-8s %s\n" "版本" "内容" "路径"
   printf "%-10s %-8s %s\n" "────" "────" "────"
   while IFS= read -r dir; do
     [[ -n "$dir" ]] || continue
-    local version scripts="✅"
+    local version mark="✅"
     version="$(skill_version "$dir/SKILL.md")"
-    # A copy whose SKILL.md claims the current version but whose scripts differ
-    # is the worst case: it looks updated while still running old code.
-    diff -q "$SOURCE_DIR/scripts/lib/config.mjs" "$dir/scripts/lib/config.mjs" >/dev/null 2>&1 || scripts="⚠️ 旧"
-    printf "%-10s %-8s %s\n" "$version" "$scripts" "$dir"
+    # Compare the whole tree: an agent editing SKILL.md in place leaves the
+    # scripts identical while the documentation silently diverges.
+    [[ "$(tree_hash "$dir")" == "$source_hash" ]] || mark="⚠️ 不同"
+    printf "%-10s %-8s %s\n" "$version" "$mark" "$dir"
   done <<< "$copies"
 
   local stale
   stale="$(while IFS= read -r dir; do
     [[ -n "$dir" ]] || continue
-    if ! diff -q "$SOURCE_DIR/scripts/lib/config.mjs" "$dir/scripts/lib/config.mjs" >/dev/null 2>&1 \
+    if [[ "$(tree_hash "$dir")" != "$source_hash" ]] \
        || [[ "$(skill_version "$dir/SKILL.md")" != "$source_version" ]]; then
       echo "$dir"
     fi
@@ -118,11 +147,11 @@ report_status() {
 
   if [[ -n "$stale" ]]; then
     echo
-    echo "⚠️  以下副本的脚本与源码不一致（可能只更新了 SKILL.md，或从未更新）："
+    echo "⚠️  以下副本与源码不一致（版本号不同，或内容被改过）："
     while IFS= read -r dir; do
       [[ -n "$dir" ]] && echo "     $dir"
     done <<< "$stale"
-    echo "    用 ./install.sh --force [--codex] 重新安装即可修复。"
+    echo "    运行 ./install.sh --update 可就地覆盖修复。"
   fi
 
   # Two copies under one root means the loader picks one arbitrarily — usually

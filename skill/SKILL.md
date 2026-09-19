@@ -3,7 +3,7 @@ name: playwright-e2e
 description: 把被测网址和功能测试用例（Excel/CSV/Markdown）变成可执行的端到端自动化测试。自动准备 Playwright 环境、解析用例、输出测试计划并等待用户确认，确认后探索真实页面、固化为 Playwright 用例、执行测试，最终产出 Markdown 测试报告、Playwright HTML 报告与 JSON 结果。适用于功能验证、回归测试和上线前检查。
 whenToUse: 当用户提供被测网址和功能测试用例（或要求「帮我测一下这个网站/这个功能」），需要生成测试计划、自动执行端到端测试并输出测试报告时使用。
 metadata:
-  version: 1.4.0
+  version: 1.5.0
   requires:
     node: ">=20"
 ---
@@ -12,8 +12,20 @@ metadata:
 
 把「网址 + 功能测试用例」变成「测试计划 → 用户确认 → 自动执行 → 测试报告」。
 
-本 skill 的所有脚本都在 `scripts/` 下（相对于本 skill 的基础目录）。下面命令里的
-`$SKILL` 指该基础目录，例如 `~/.dsh/skills/playwright-e2e`。
+本 skill 的所有脚本都在 `scripts/` 下（相对于本 skill 的基础目录）。先用**实际路径**
+把 `$SKILL` 设好，不要假定固定的安装位置：
+
+```bash
+SKILL="<本 skill 的基础目录>"     # 例如 ~/.dsh/skills/playwright-e2e
+                                  # 或 ~/.codex/skills/playwright-e2e
+```
+
+本 skill 可能被装在 DSH、Codex 或项目级目录下，路径并不固定 ——
+以运行时给出的基础目录为准。
+
+脚本默认把工具链和运行产物写到 `~/.dsh/playwright-e2e/`；可用 `PLAYWRIGHT_E2E_HOME`
+改到专用的可写目录。该目录必须**位于被测项目之外**，且不能指向已有项目的根目录
+（`bootstrap.mjs` 会拒绝接管它，以免覆盖别人的 `package.json`）。
 
 ---
 
@@ -28,6 +40,13 @@ metadata:
    不得为了让报告好看而跳过、注释掉或放宽断言。无法自动化的用例要在计划里说明、在报告里列出。
 3. **不污染被测项目。** 测试代码、依赖、截图、报告全部写在独立运行目录里
    （默认 `~/.dsh/playwright-e2e/runs/<项目>-<时间戳>/`）。不要往被测项目里写任何文件。
+   一旦用了 `PLAYWRIGHT_E2E_HOME`，**后续每一个脚本都必须继承同一个环境变量**，
+   否则工具链和运行目录会散落到两处。
+
+4. **不要直接修改安装副本里的文件。** 安装目录（`~/.dsh/skills/`、`~/.codex/skills/`）
+   是发布产物，不是工作区。在这里改 `SKILL.md` 或脚本，会让副本与源码分叉、
+   版本号失真，下次 `./install.sh --update` 会把改动全部覆盖掉。
+   要改就改仓库源码 —— 见 `CONTRIBUTING.md`。
 
 ---
 
@@ -40,6 +59,10 @@ metadata:
 ```bash
 node "$SKILL/scripts/bootstrap.mjs" --check --json
 ```
+
+`--check` 是**只读自检**，不写任何文件；不带 `--check` 时脚本可能安装 npm 依赖、
+创建运行目录。依赖安装失败、浏览器下载失败、权限拒绝都属于**环境问题**，
+不得写成测试失败或「用例未通过」。
 
 看返回的 `ready` 字段：
 
@@ -69,25 +92,35 @@ PLAYWRIGHT_E2E_HOME="<可写目录>" node "$SKILL/scripts/bootstrap.mjs"
 
 ### 浏览器可见性
 
-**默认是有头模式** —— `explore.mjs` 和 `run.mjs` 都会真的弹出浏览器窗口，
-用户能看着它操作。这对「让用户信任测试结果」很重要，尤其是第一次测一个新站点时。
+**开箱即用就是有头模式 —— 会弹出浏览器窗口，测试人员能看到用例逐步执行的全过程。**
+这是默认行为，不需要任何配置，也不需要加参数。不要把它描述成「取决于配置」：
+只有用户显式要求无头、或环境确实没有显示服务时，才会不弹窗口。
 
-| 参数 | 作用 | 什么时候用 |
+覆盖方式只有两种，且都只在必要时才用：
+
+| 情况 | 怎么做 | 什么时候用 |
 | --- | --- | --- |
-| （默认） | 弹出窗口，用户可见 | 正常情况 |
-| `--slow-mo 500` | 每个操作放慢 500ms，肉眼跟得上 | 用户说「太快了看不清」 |
-| `--headless` | 不弹窗口 | 无显示环境：CI、服务器、远程机器 |
+| **（默认，什么都不用加）** | 弹出窗口，全过程可见 | 正常情况——这是给测试人员看的过程 |
+| 用户嫌太快看不清 | `--slow-mo 500` | 每个操作放慢 500ms；数值越大越慢 |
+| 用户不想弹窗，或**无显示环境** | `--headless` | CI、服务器、SSH 远程机器 |
 
-内置演示 `demo.mjs` 遵循同一默认：普通机器上弹窗口，检测到 `CI` 环境变量则无头。
+用户提供的 `e2e.config.json` 里如果写了 `"headless": true` 或 `"slowMo"`，会覆盖上述默认。
+**但不要据此声称「默认由配置决定」** —— 没有配置时就是有头，这是要主动告诉测试人员的事。
+
+内置演示 `demo.mjs` 遵循同一原则：普通机器上弹窗口，检测到 `CI` 环境变量则无头。
 
 **你必须主动告诉用户这件事**，并在计划阶段就说明：测试会打开浏览器窗口；
-嫌快可以加 `--slow-mo`；不想弹窗就用 `--headless`，报告里的截图和 trace
-仍然能逐步回放。
+嫌快可以加 `--slow-mo`；不想弹窗就用 `--headless`。无头模式下报告里的截图和 trace
+仍然能逐步回放（若配置启用了截图与 trace）。
 
 如果浏览器启动失败并提示 `cannot open display` 或类似错误，说明当前环境没有
 显示服务 —— 加 `--headless` 重试，不要反复重跑。
 
 ### 阶段 1 — 解析用例并生成测试计划
+
+如果用户只给了网址、没有结构化用例，**先问用户是否允许**根据页面探索结果生成
+临时用例。即使允许，也不得把临时探索包装成「已覆盖的正式用例」——
+**正式覆盖率只能以 `cases.json` 里的用例为准**，报告中的「未自动化」口径也要以此计算。
 
 ```bash
 node "$SKILL/scripts/new-run.mjs" --url "<被测网址>" --json
@@ -182,7 +215,9 @@ node "$SKILL/scripts/run.mjs" --run-dir "<runDir>" --json
 - `ok: false` → 基础设施问题（浏览器没装、编译失败、没有用例文件）。看 `hint` 修复后重跑，
   **不要**把这类失败写进报告当成测试结论。
 
-只想重跑部分用例时加 `--grep "<模式>"`。
+只想重跑部分用例时加 `--grep "<模式>"`。**重跑仍然必须使用同一个已确认的
+`plan.md`**。`--skip-plan-check` 只供维护者排查脚本问题，普通测试流程**不得使用** ——
+它绕过的是本轮流程唯一的用户确认点。
 
 ### 阶段 5 — 输出报告
 
@@ -206,7 +241,7 @@ node "$SKILL/scripts/report.mjs" --run-dir "<runDir>" --json
 ### 完整命令序列
 
 ```bash
-SKILL=~/.dsh/skills/playwright-e2e
+SKILL="<本 skill 的基础目录>"     # DSH 通常是 ~/.dsh/skills/playwright-e2e
 node "$SKILL/scripts/bootstrap.mjs" --check --json
 node "$SKILL/scripts/new-run.mjs" --url "<网址>" --json
 node "$SKILL/scripts/parse-cases.mjs" --input "<用例>" --out "<runDir>/cases.json" --json
@@ -244,6 +279,10 @@ node "$SKILL/scripts/report.mjs" --run-dir "<runDir>" --json
 `e2e.config.json` 控制 baseURL、浏览器、超时、重试、登录等。样例见
 `assets/e2e.config.example.json`。凭据**必须**写成 `${E2E_USERNAME}` / `${E2E_PASSWORD}`
 占位符并通过环境变量注入，**不要把密码写进配置文件、用例文件或报告**。
+
+配置里的 `headless` 与 `slowMo` 只影响浏览器可见性，不改变「默认有头」这个事实。
+如果脚本文档与实际行为不一致，**以脚本的 `--json` 输出为准**，
+并把偏差在报告中注明。
 
 ---
 

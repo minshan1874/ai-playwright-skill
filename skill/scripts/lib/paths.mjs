@@ -173,12 +173,95 @@ export function runPaths(runDir) {
     specs: path.join(runDir, 'specs'),
     fixtures: path.join(runDir, 'specs', '_fixtures.ts'),
     playwrightConfig: path.join(runDir, 'playwright.config.ts'),
+    // Where execution attempts live. `testResults`/`htmlReport` at the run root
+    // are kept for backwards compatibility with older runs, but every new
+    // execution writes into its own attempt directory.
+    attempts: path.join(runDir, 'attempts'),
     testResults: path.join(runDir, 'test-results'),
     jsonResults: path.join(runDir, 'test-results', 'results.json'),
     summary: path.join(runDir, 'results-summary.json'),
     htmlReport: path.join(runDir, 'playwright-report'),
     report: path.join(runDir, 'report.md'),
   };
+}
+
+/** Directory holding one subdirectory per execution attempt. */
+export function attemptsDir(runDir) {
+  return path.join(runDir, 'attempts');
+}
+
+/**
+ * Paths for a single execution attempt.
+ *
+ * Re-running a suite in place is what produced `browserContext.close ENOENT`:
+ * Playwright cleans its output directory, and leftovers from a previous run —
+ * a trace still open, a screenshot whose test no longer exists — turn that
+ * cleanup into a crash. A fresh directory per attempt removes the whole class of
+ * problem, and makes "which artifacts belong to this run?" answerable.
+ *
+ * @param {string} runDir
+ * @param {string} attemptId
+ * @returns {{id: string, dir: string, testResults: string, jsonResults: string, htmlReport: string, meta: string}}
+ */
+export function attemptPaths(runDir, attemptId) {
+  const dir = path.join(attemptsDir(runDir), attemptId);
+  return {
+    id: attemptId,
+    dir,
+    testResults: path.join(dir, 'test-results'),
+    jsonResults: path.join(dir, 'test-results', 'results.json'),
+    htmlReport: path.join(dir, 'playwright-report'),
+    meta: path.join(dir, 'attempt.json'),
+  };
+}
+
+/**
+ * Pick an unused attempt id for this moment.
+ * @param {string} runDir
+ * @param {Date} [date]
+ * @returns {string}
+ */
+export function nextAttemptId(runDir, date = new Date()) {
+  const base = `attempt-${timestamp(date)}`;
+  let id = base;
+  let counter = 2;
+  while (fs.existsSync(path.join(attemptsDir(runDir), id))) {
+    id = `${base}-${counter}`;
+    counter += 1;
+  }
+  return id;
+}
+
+/**
+ * List attempt ids, oldest first.
+ * @param {string} runDir
+ * @returns {string[]}
+ */
+export function listAttempts(runDir) {
+  const dir = attemptsDir(runDir);
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith('attempt-'))
+    .map((entry) => entry.name)
+    .sort();
+}
+
+/**
+ * Delete all but the newest `keep` attempts.
+ * @param {string} runDir
+ * @param {number} keep
+ * @returns {string[]} removed attempt ids
+ */
+export function pruneAttempts(runDir, keep) {
+  const attempts = listAttempts(runDir);
+  const limit = Number.isFinite(keep) && keep >= 1 ? Math.floor(keep) : 10;
+  if (attempts.length <= limit) return [];
+  const removed = attempts.slice(0, attempts.length - limit);
+  for (const id of removed) {
+    fs.rmSync(path.join(attemptsDir(runDir), id), { recursive: true, force: true });
+  }
+  return removed;
 }
 
 /** Path of the reusable storageState file for a project slug. */

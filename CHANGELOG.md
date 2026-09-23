@@ -5,9 +5,96 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [未发布]
+## [1.8.0] - 2026-09-23
+
+这一版来自一次真实执行中暴露的问题：Excel 解析崩在库内部、多步骤登录写不出来、
+重跑时旧 trace 污染新结果、`--grep` 把执行范围说成覆盖缺口。
+
+### 新增
+
+- **多步骤登录支持**。此前生成器只会「账号、密码同时填写后提交」，遇到
+  「账号 → 继续 → 密码 → 登录」这类两步表单直接失败，而报错只说不认识某个选择器。
+
+  现在：`auth.continueSelector` 表达中间那一次点击，`auth.steps` 是完全自定义的
+  步骤列表（与探索步骤文件同一套动作与定位方式），并且：
+
+  - 每一步都渲染成 `setup.step()`，登录卡在哪一步在 HTML 报告里直接可见；
+  - 密码框迟迟不出现时，报错会提示「如果是两步流程，请配置 `auth.continueSelector`」——
+    这正是把两步表单当单页表单配的典型症状；
+  - 登录成功的判据推荐用**页面元素**（`auth.successSelector`：账户菜单、模型配置、
+    Upgrade 按钮），而不是会经过多次跳转的 URL。
+
+- **只复用登录态不再需要登录配置**。`{"auth": {"enabled": false, "storageState":
+  "auth/site.json"}}` 现在是完整合法的配置：不需要 `loginUrl`，不需要用户名密码占位符。
+  `auth.storageState` 的相对路径按**配置文件所在目录**解析，而不是当前工作目录。
+  另外新增 `auth.forceLogin`，用于忽略已有登录态强制重新登录。
+
+- **执行批次隔离**：每次执行写入独立的 `<runDir>/attempts/attempt-<时间戳>/`，
+  自带 `test-results/`、`results.json`、`playwright-report/` 与 `attempt.json`。
+  `results-summary.json` 与 `report.md` 只反映最近一次执行，历史批次按
+  `attempts.keep`（默认 10）保留。
+
+- **异步任务的双超时**：`asyncTasks.submitTimeout`（默认 30s）约束提交动作，
+  `asyncTasks.completionTimeout`（默认 180s）约束排队与生成。配套的
+  `waitForAsyncTask()` 会把状态变化（`Queued → 生成中 → 已完成`）记进**步骤时间线**，
+  失败报告里因此能区分「提交失败」和「生成较慢」。它只给当前用例放宽超时，
+  不用为了异步任务把全局 `timeout` 调大。
+
+- **`.xlsx` 的内置备用读取器**（零依赖）：自己解析 ZIP 中央目录 + 命名空间无关的
+  XML 扫描，支持前缀命名空间、Strict OOXML、稀疏单元格、内联字符串、公式结果、
+  合并单元格与 Zip64。
+
+- **定位器的动态文本处理**：`outline.md` 标出「⚠️ 动态文本 / ✅ 稳定文本」，
+  并为动态文案给出 `getByRole('button', { name: /积分\s+\d+/ })` 这类正则候选
+  （排在字面量定位器之前），以及「备选定位器」列与「登录成功信号候选」一节。
+
+### 修复
+
+- **`Cannot read properties of undefined (reading 'sheets')`**。这是 exceljs 内部
+  读取 `xl/workbook.xml` 时的崩溃：它假定元素结构固定，遇到不认识的命名空间
+  （第三方导出工具、Strict OOXML）就拿到 `undefined` 再取 `.sheets`。
+
+  现在 `.xlsx` 按 exceljs → 内置读取器 → 按内容识别（HTML 表格 / 分隔符文本）依次尝试，
+  并在 `warnings` 里说明实际用了哪一种。全部失败时报的是**「用例文件格式兼容问题」**，
+  附带每种方式各自的失败原因和修复办法（另存为 .csv / 标准 .xlsx / 贴成 Markdown 表格），
+  不再笼统地说「请修正用例文件」。内置读取器成功时会另存一份 `*.recovered.csv` 供核对。
+
+- **`browserContext.close ENOENT`**：同目录反复重跑时，上一次残留的 trace 与截图
+  会让 Playwright 的目录清理崩溃。批次隔离从根上消除这一类问题。
+
+- **自动登录写下的登录态从未被用例加载**。生成配置时，只要存在 setup 工程，
+  `storageState` 就不写进 `use` —— 于是首次运行「登录成功但用例仍在登录页」，
+  第二次运行才正常。现在 `storageState` 挂在浏览器工程上，setup 工程自己不加载它
+  （避免用过期的登录态被重定向走）。
+
+- **`--grep` 之后的报告把执行范围说成覆盖缺口**。现在区分两个口径：
+  `未自动化`（从未写过代码）与 `本次未执行`（有代码，被筛选排除）。
+  报告分两节列出，结论显示 `⚠️ 筛选执行（未跑全量）`，判定依据是静态扫描
+  `specs/` 里的 `caseId` 注解与 `[用例ID]` 标题。
+
+- **文档承诺了 `{"action": "screenshot"}`，脚本却不认**。现在 `screenshot` 是
+  正式动作（`hover`、`uncheck` 一并补上），动作名写错时报错会列出全部受支持的动作。
+
+- **截图失败会掩盖真正的失败原因**。截图本身抛错时，原始错误被替换成了一个
+  无关的 TypeError；现在截图失败只记录，原始错误始终保留。
+
+- **`/` 未转义会生成无法编译的正则定位器**。形如 `3/10` 的文案生成的
+  `name: /\d+/\d+/` 会提前终止正则字面量；现在正则定界符一并转义。
 
 ### 文档
+
+- SKILL.md 新增「登录：先确认用哪一种方式」（三种方式的选型表 + **Google/OAuth
+  不要自动登录**，改用 `codegen` 导出登录态 + 登录态过期的症状），
+  以及异步任务等待、批次隔离、`--grep` 口径的说明。
+- `references/workflow.md` 重写登录一节（三种方式、多步骤示例、`auth.steps`、
+  成功判据），新增「重跑与执行批次」与异步任务写法。
+- `references/troubleshooting.md` 新增：Excel 格式兼容问题、批次残留 ENOENT、
+  步骤时间线缺失、异步任务停在 `Queued` 的分流表。
+- `references/locator-guide.md` 新增「动态文本」与「备选定位器」两节。
+- `references/report-template.md` 更新章节表、结论判定规则与「不要把本次未执行
+  说成覆盖缺口」的汇报要求。
+
+### 文档（1.7.0 之后的既有改动）
 
 - **补齐正面定位，不再让「不做什么」单独出现**。原文只有一节排除项
   （单元测试、接口测试、性能压测……），读者看完只记得「它不做什么」。
@@ -311,7 +398,7 @@
 - 通过率的分母是实际执行的用例数，未自动化用例不计入，单独列出
 - 不做单元测试、接口测试、性能压测、视觉回归、CI 平台对接
 
-[未发布]: https://github.com/minshan1874/ai-playwright-skill/compare/v1.7.0...HEAD
+[1.8.0]: https://github.com/minshan1874/ai-playwright-skill/compare/375d256...HEAD
 [1.7.0]: https://github.com/minshan1874/ai-playwright-skill/releases/tag/v1.7.0
 [1.6.0]: https://github.com/minshan1874/ai-playwright-skill/compare/c0159f1...7a30c47
 [1.5.0]: https://github.com/minshan1874/ai-playwright-skill/compare/ce232aa...c0159f1

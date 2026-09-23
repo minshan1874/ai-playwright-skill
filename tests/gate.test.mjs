@@ -403,8 +403,8 @@ describe('report rendering', () => {
   });
 
   it('includes the summary table with all outcomes', () => {
-    assert.ok(markdown.includes('| 通过 | 失败 | 不稳定 | 跳过 | 未自动化 | 通过率 |'));
-    assert.ok(markdown.includes('| 1 | 1 | 0 | 0 | 1 | 50% |'));
+    assert.ok(markdown.includes('| 通过 | 失败 | 不稳定 | 跳过 | 本次未执行 | 未自动化 | 通过率 |'));
+    assert.ok(markdown.includes('| 1 | 1 | 0 | 0 | 0 | 1 | 50% |'));
   });
 
   it('lists every case with a status badge', () => {
@@ -463,6 +463,183 @@ describe('report rendering', () => {
       baseURL: 'u',
     });
     assert.ok(clean.includes('没有失败用例。'));
-    assert.ok(clean.includes('所有用例都已自动化并执行。'));
+    assert.ok(clean.includes('所有用例都已自动化。'));
+  });
+});
+
+describe('coverage versus execution scope', () => {
+  const CASES = [
+    { id: 'TC-001', title: '登录成功', module: '登录', priority: 'P0' },
+    { id: 'TC-002', title: '密码错误', module: '登录', priority: 'P1' },
+    { id: 'TC-003', title: '短信登录', module: '登录', priority: 'P1' },
+  ];
+
+  /** A run that executed exactly one case, as `--grep TC-001` would. */
+  const grepRun = () =>
+    normalizeResults(
+      makeReport([
+        { title: '[TC-001] 登录成功', status: 'expected', annotations: [{ type: 'caseId', description: 'TC-001' }] },
+      ]),
+      { cases: CASES, automatedCaseIds: ['TC-001', 'TC-002'], filter: { grep: 'TC-001' } },
+    );
+
+  it('separates "never automated" from "not executed this run"', () => {
+    const summary = grepRun();
+    assert.deepEqual(summary.notAutomated.map((entry) => entry.id), ['TC-003']);
+    assert.deepEqual(summary.notExecuted.map((entry) => entry.id), ['TC-002']);
+  });
+
+  it('marks each case with the right status', () => {
+    const byId = new Map(grepRun().caseStatus.map((entry) => [entry.id, entry.status]));
+    assert.equal(byId.get('TC-001'), 'passed');
+    assert.equal(byId.get('TC-002'), 'not-executed');
+    assert.equal(byId.get('TC-003'), 'not-automated');
+  });
+
+  it('does not call a filtered run a coverage gap', () => {
+    const pureFiltered = normalizeResults(
+      makeReport([{ title: '[TC-001] 登录成功', status: 'expected', annotations: [{ type: 'caseId', description: 'TC-001' }] }]),
+      { cases: CASES, automatedCaseIds: CASES.map((entry) => entry.id), filter: { grep: 'TC-001' } },
+    );
+    const verdict = verdictFor(pureFiltered, { cases: CASES });
+    assert.equal(verdict.verdict, 'partial');
+    assert.equal(verdict.label, '⚠️ 筛选执行（未跑全量）');
+    assert.ok(verdict.reasons.some((reason) => reason.includes('不是覆盖缺口')));
+    assert.ok(verdict.reasons.some((reason) => reason.includes('--grep "TC-001"')));
+  });
+
+  it('still reports a real coverage gap as a coverage gap', () => {
+    const summary = normalizeResults(
+      makeReport([
+        { title: '[TC-001] 登录成功', status: 'expected', annotations: [{ type: 'caseId', description: 'TC-001' }] },
+      ]),
+      { cases: CASES, automatedCaseIds: ['TC-001'] },
+    );
+    const verdict = verdictFor(summary, { cases: CASES });
+    assert.equal(verdict.label, '⚠️ 部分覆盖');
+    assert.ok(verdict.reasons.some((reason) => reason.includes('2 条用例未自动化')));
+  });
+
+  it('mentions both when a filtered run also has a coverage gap', () => {
+    const summary = grepRun();
+    const verdict = verdictFor({ ...summary, notAutomated: [...summary.notAutomated, { id: 'TC-004' }] }, { cases: CASES });
+    assert.ok(verdict.reasons.some((reason) => reason.includes('未自动化')));
+    assert.ok(verdict.reasons.some((reason) => reason.includes('本次未执行')));
+  });
+
+  it('falls back to executed cases when no static index is available', () => {
+    // Without the index there is no way to tell the two apart, so the summary
+    // must not invent a "not executed" bucket.
+    const summary = normalizeResults(
+      makeReport([{ title: '[TC-001] 登录成功', status: 'expected', annotations: [{ type: 'caseId', description: 'TC-001' }] }]),
+      { cases: CASES },
+    );
+    assert.deepEqual(summary.notExecuted, []);
+    assert.deepEqual(summary.notAutomated.map((entry) => entry.id), ['TC-002', 'TC-003']);
+  });
+});
+
+describe('report sections for execution scope', () => {
+  const CASES = [
+    { id: 'TC-001', title: '登录成功', module: '登录', priority: 'P0' },
+    { id: 'TC-002', title: '密码错误', module: '登录', priority: 'P1' },
+    { id: 'TC-003', title: '短信登录', module: '登录', priority: 'P1' },
+  ];
+
+  const summary = normalizeResults(
+    makeReport([{ title: '[TC-001] 登录成功', status: 'expected', annotations: [{ type: 'caseId', description: 'TC-001' }] }]),
+    { cases: CASES, automatedCaseIds: ['TC-001', 'TC-002'], filter: { grep: 'TC-001' } },
+  );
+
+  const markdown = renderReport({
+    cases: CASES,
+    summary: { ...summary, verdict: verdictFor(summary, { cases: CASES }), attempt: { id: 'attempt-1', dir: '/tmp/run/attempts/attempt-1' } },
+    config: { asyncTasks: { submitTimeout: 30000, completionTimeout: 180000 }, timeout: 30000 },
+    runDir: '/tmp/run',
+    baseURL: 'u',
+  });
+
+  it('renders the filtered-out cases as a separate section', () => {
+    assert.ok(markdown.includes('本次未执行用例（筛选执行，非覆盖缺口）'));
+    assert.ok(markdown.includes('已经有自动化代码'));
+    assert.ok(markdown.includes('⏸️ 本次未执行'));
+  });
+
+  it('keeps the coverage-gap section about coverage only', () => {
+    assert.ok(markdown.includes('未自动化用例（覆盖缺口）'));
+    const gapSection = markdown.slice(markdown.indexOf('## 四、未自动化用例'), markdown.indexOf('## 五、本次未执行用例'));
+    assert.ok(gapSection.includes('TC-003'));
+    assert.ok(!gapSection.includes('TC-002'));
+  });
+
+  it('counts both buckets separately in the summary table', () => {
+    assert.ok(markdown.includes('| 通过 | 失败 | 不稳定 | 跳过 | 本次未执行 | 未自动化 | 通过率 |'));
+    assert.ok(markdown.includes('| 1 | 0 | 0 | 0 | 1 | 1 | 100% |'));
+  });
+
+  it('names the attempt directory so artifacts cannot be confused', () => {
+    assert.ok(markdown.includes('attempt-1'));
+    assert.ok(markdown.includes('附件不跨批次混用'));
+  });
+
+  it('documents the async budget', () => {
+    assert.ok(markdown.includes('异步任务预算'));
+    assert.ok(markdown.includes('等待异步任务的用例会自动放宽'));
+  });
+});
+
+describe('step timeline in the report', () => {
+  it('renders the timeline and points at the failing step', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pw-e2e-timeline-'));
+    const timeline = path.join(dir, 'timeline.json');
+    fs.writeFileSync(
+      timeline,
+      JSON.stringify({
+        steps: [
+          { title: '提交生成任务', status: 'passed', durationMs: 120 },
+          {
+            title: '等待生成完成',
+            status: 'failed',
+            durationMs: 181000,
+            observations: [
+              { at: 0, state: 'Queued' },
+              { at: 5000, state: '生成中' },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const report = makeReport([
+      {
+        title: '[TC-001] 文生图',
+        status: 'unexpected',
+        error: '等待「等待生成完成」超时（180s）',
+        annotations: [{ type: 'caseId', description: 'TC-001' }],
+        attachments: [{ name: 'timeline', contentType: 'application/json', path: timeline }],
+      },
+    ]);
+    const summary = normalizeResults(report, { cases: [{ id: 'TC-001', title: '文生图', module: '生成', priority: 'P0' }] });
+    const markdown = renderReport({
+      cases: [{ id: 'TC-001', title: '文生图', module: '生成', priority: 'P0' }],
+      summary,
+      config: {},
+      runDir: '/tmp/run',
+      baseURL: 'u',
+    });
+
+    assert.ok(markdown.includes('步骤时间线'));
+    assert.ok(markdown.includes('提交生成任务'));
+    assert.ok(markdown.includes('Queued（0ms） → 生成中（5.0s）'));
+    assert.ok(markdown.includes('失败发生在「等待生成完成」这一步'));
+
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('omits the timeline when no attachment was written', () => {
+    const report = makeReport([{ title: '[TC-001] x', status: 'unexpected', error: 'boom' }]);
+    const summary = normalizeResults(report, { cases: [] });
+    const markdown = renderReport({ cases: [], summary, config: {}, runDir: '/tmp/run', baseURL: 'u' });
+    assert.ok(!markdown.includes('步骤时间线'));
   });
 });

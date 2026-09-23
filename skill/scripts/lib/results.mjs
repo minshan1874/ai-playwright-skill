@@ -110,13 +110,20 @@ function collectError(results) {
 
 /**
  * Normalize a Playwright JSON report.
+ *
  * @param {object} report parsed `results.json`
- * @param {{cases?: object[]}} [options] parsed `cases.json`
+ * @param {{cases?: object[], automatedCaseIds?: Set<string>|string[], filter?: {grep?: string, project?: string}}} [options]
+ *   `cases` is the parsed `cases.json`; `automatedCaseIds` is the static index of
+ *   specs on disk, which is what separates "never automated" from "not executed
+ *   in this run"; `filter` records the `--grep`/`--project` narrowing.
  * @returns {object}
  */
 export function normalizeResults(report, options = {}) {
   const cases = options.cases ?? [];
   const byId = new Map(cases.map((testCase) => [testCase.id, testCase]));
+  const automated = new Set(options.automatedCaseIds ?? []);
+  const filter = { grep: options.filter?.grep ?? '', project: options.filter?.project ?? '' };
+  const filtered = filter.grep !== '' || filter.project !== '';
 
   const tests = [];
   for (const entry of flattenSuites(report?.suites)) {
@@ -154,17 +161,27 @@ export function normalizeResults(report, options = {}) {
     else counts[test.status] += 1;
   }
 
-  // Coverage: which spreadsheet cases never produced a test.
+  // Coverage is a property of the *suite*, not of this execution: a case is a
+  // coverage gap only when no spec mentions it at all. When the caller could not
+  // supply the static index, fall back to "what ran" so the numbers stay honest
+  // rather than silently claiming full coverage.
   const executed = new Set(tests.map((test) => test.caseId).filter((id) => id !== null));
+  const known = automated.size > 0 ? automated : executed;
+
   const notAutomated = cases
-    .filter((testCase) => !executed.has(testCase.id))
+    .filter((testCase) => !known.has(testCase.id))
+    .map((testCase) => ({ id: testCase.id, title: testCase.title, module: testCase.module, priority: testCase.priority }));
+
+  // Automated, but excluded from this run by --grep / --project.
+  const notExecuted = cases
+    .filter((testCase) => known.has(testCase.id) && !executed.has(testCase.id))
     .map((testCase) => ({ id: testCase.id, title: testCase.title, module: testCase.module, priority: testCase.priority }));
 
   const caseStatus = cases.map((testCase) => {
     const matches = tests.filter((test) => test.caseId === testCase.id);
     // Precedence: a failure anywhere wins, then flakiness, then a real pass.
     // Only when every attempt was skipped is the case itself skipped.
-    let status = 'not-automated';
+    let status = known.has(testCase.id) ? 'not-executed' : 'not-automated';
     if (matches.some((test) => test.status === 'failed')) status = 'failed';
     else if (matches.some((test) => test.status === 'flaky')) status = 'flaky';
     else if (matches.some((test) => test.status === 'passed')) status = 'passed';
@@ -202,6 +219,10 @@ export function normalizeResults(report, options = {}) {
     tests,
     caseStatus,
     notAutomated,
+    notExecuted,
+    filtered,
+    filter,
+    automatedCaseCount: known.size,
     unmatchedTests,
     infrastructureErrors,
     projects: [...new Set(tests.map((test) => test.project).filter(Boolean))],
@@ -216,6 +237,11 @@ export function normalizeResults(report, options = {}) {
 
 /**
  * Decide the overall verdict for a run.
+ *
+ * A filtered run is reported as a filtered run. Calling it "部分覆盖" would be
+ * technically defensible and practically misleading: the cases that did not run
+ * have automation, they were simply out of scope for this invocation.
+ *
  * @param {object} summary normalized results
  * @param {{cases?: object[]}} [options]
  * @returns {{verdict: 'passed'|'failed'|'partial', label: string, reasons: string[]}}
@@ -223,6 +249,13 @@ export function normalizeResults(report, options = {}) {
 export function verdictFor(summary, options = {}) {
   const reasons = [];
   const totalCases = (options.cases ?? []).length;
+  const notExecuted = summary.notExecuted ?? [];
+  const filterText = [
+    summary.filter?.grep ? `--grep "${summary.filter.grep}"` : '',
+    summary.filter?.project ? `--project ${summary.filter.project}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   if (summary.infrastructureErrors.length > 0) {
     // Something broke outside the tests themselves, so the run cannot be trusted
@@ -240,7 +273,15 @@ export function verdictFor(summary, options = {}) {
   }
   if (summary.notAutomated.length > 0) {
     reasons.push(`${summary.notAutomated.length} 条用例未自动化（共 ${totalCases} 条）。`);
+    if (notExecuted.length > 0) {
+      reasons.push(`另有 ${notExecuted.length} 条已自动化的用例本次未执行${filterText ? `（${filterText}）` : ''}。`);
+    }
     return { verdict: 'partial', label: '⚠️ 部分覆盖', reasons };
+  }
+  if (notExecuted.length > 0) {
+    reasons.push(`本次为筛选执行${filterText ? `（${filterText}）` : ''}：${notExecuted.length} 条已自动化的用例未执行。`);
+    reasons.push('这是执行范围问题，不是覆盖缺口 —— 去掉筛选参数重跑即可覆盖全部用例。');
+    return { verdict: 'partial', label: '⚠️ 筛选执行（未跑全量）', reasons };
   }
   if (summary.counts.skipped > 0) {
     reasons.push(`${summary.counts.skipped} 条用例被跳过。`);

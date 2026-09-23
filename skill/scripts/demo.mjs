@@ -302,7 +302,10 @@ async function main() {
         explore: path.join(runDir, 'explore', 'outline.md'),
         specs: path.join(runDir, 'specs'),
         report: report.payload.report,
-        htmlReport: path.join(runDir, 'playwright-report', 'index.html'),
+        // Artifacts live in the execution attempt directory, so read the path the
+        // run actually reported instead of assuming the run root.
+        htmlReport: run.payload.artifacts?.htmlReportIndex ?? path.join(runDir, 'playwright-report', 'index.html'),
+        attemptDir: run.payload.attempt?.dir ?? '',
         summary: path.join(runDir, 'results-summary.json'),
       },
       expected: { passed: 3, failed: 1, notAutomated: 1 },

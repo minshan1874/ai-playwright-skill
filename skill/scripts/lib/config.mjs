@@ -9,8 +9,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { validateStep } from './steps.mjs';
+
 /** Browsers Playwright can drive; `chromium` is the only one we preinstall. */
 export const SUPPORTED_BROWSERS = ['chromium', 'firefox', 'webkit'];
+
+/** How a run obtains (or reuses) a logged-in session. */
+export const AUTH_MODE = {
+  none: 'none',
+  storageState: 'storage-state',
+  login: 'login',
+};
 
 /** Defaults applied to every run. */
 export const DEFAULT_CONFIG = {
@@ -39,11 +48,33 @@ export const DEFAULT_CONFIG = {
     username: '',
     password: '',
     usernameSelector: '',
+    // Multi-step logins (account -> Continue -> password -> submit) need the
+    // intermediate click; single-page logins simply leave this empty.
+    continueSelector: '',
     passwordSelector: '',
     submitSelector: '',
     successUrl: '',
+    // A stable post-login element (account menu, model config, "Upgrade") is a
+    // far better success signal than a URL that redirects through three hops.
+    successSelector: '',
     storageState: '',
     saveAfterLogin: true,
+    // Ignore an existing storageState and log in again.
+    forceLogin: false,
+    // Full escape hatch: an explicit step list, same vocabulary as explore steps.
+    steps: [],
+  },
+  // Asynchronous work started by the product under test (image generation, batch
+  // jobs, exports) is not a page interaction: submission and completion deserve
+  // separate budgets, and "still running after 60s" must not read as "failed".
+  asyncTasks: {
+    submitTimeout: 30000,
+    completionTimeout: 180000,
+    pollInterval: 2000,
+  },
+  attempts: {
+    // How many previous execution attempts to keep on disk.
+    keep: 10,
   },
 };
 
@@ -88,6 +119,8 @@ export function mergeConfig(partial) {
   const merged = { ...DEFAULT_CONFIG, ...partial };
   merged.viewport = { ...DEFAULT_CONFIG.viewport, ...(partial?.viewport ?? {}) };
   merged.auth = { ...DEFAULT_CONFIG.auth, ...(partial?.auth ?? {}) };
+  merged.asyncTasks = { ...DEFAULT_CONFIG.asyncTasks, ...(partial?.asyncTasks ?? {}) };
+  merged.attempts = { ...DEFAULT_CONFIG.attempts, ...(partial?.attempts ?? {}) };
   return merged;
 }
 
@@ -121,19 +154,201 @@ export function validateConfig(config) {
   if (!VIDEO_MODES.has(config.video)) problems.push(`video 取值非法：${config.video}。`);
 
   if (config.auth?.enabled) {
-    if (String(config.auth.loginUrl ?? '').trim() === '') {
-      problems.push('auth.enabled 为 true 时必须提供 auth.loginUrl。');
-    }
+    const storageState = String(config.auth.storageState ?? '').trim();
     const hasCredentials = String(config.auth.username ?? '') !== '' && String(config.auth.password ?? '') !== '';
-    if (!hasCredentials) {
-      problems.push(
-        'auth.enabled 为 true 时必须提供 auth.username 与 auth.password；' +
-          '推荐写成 "${E2E_USERNAME}" 并通过环境变量注入。',
-      );
+    const hasSteps = Array.isArray(config.auth.steps) && config.auth.steps.length > 0;
+
+    // A configured storageState means the session already exists: no login is
+    // performed, so demanding credentials for it would be pure ceremony. They are
+    // only required when the skill must actually log in — which is exactly the
+    // case when no storageState is configured.
+    if (storageState === '') {
+      if (String(config.auth.loginUrl ?? '').trim() === '') {
+        problems.push('auth.enabled 为 true 时必须提供 auth.loginUrl，或改为只复用已有登录态：{"auth": {"enabled": false, "storageState": "..."}}。');
+      }
+      if (!hasCredentials && !hasSteps) {
+        problems.push(
+          'auth.enabled 为 true 时必须提供 auth.username 与 auth.password（推荐写成 "${E2E_USERNAME}" / "${E2E_PASSWORD}" 并通过环境变量注入），' +
+            '或用 auth.steps 自定义登录步骤。',
+        );
+      }
     }
   }
 
+  for (const field of ['submitTimeout', 'completionTimeout', 'pollInterval']) {
+    const value = config.asyncTasks?.[field];
+    if (!Number.isFinite(value) || value <= 0) {
+      problems.push(`asyncTasks.${field} 必须是正数（毫秒）。`);
+    }
+  }
+  if (Number.isFinite(config.asyncTasks?.submitTimeout) && Number.isFinite(config.asyncTasks?.completionTimeout)) {
+    if (config.asyncTasks.submitTimeout > config.asyncTasks.completionTimeout) {
+      problems.push('asyncTasks.submitTimeout 不应大于 completionTimeout：提交比生成还慢通常意味着配置写反了。');
+    }
+  }
+  if (!Number.isFinite(config.attempts?.keep) || config.attempts.keep < 1) {
+    problems.push('attempts.keep 必须是不小于 1 的整数。');
+  }
+
+  if (config.auth?.steps !== undefined && !Array.isArray(config.auth.steps)) {
+    problems.push('auth.steps 必须是数组。');
+  } else if (Array.isArray(config.auth?.steps)) {
+    config.auth.steps.forEach((step, index) => {
+      const problem = validateStep(step, index);
+      if (problem !== null) problems.push(`auth.steps：${problem}`);
+    });
+  }
+
   return problems;
+}
+
+/**
+ * Resolve how this run will obtain a logged-in session.
+ *
+ * This is the filesystem-aware half of auth handling: `validateConfig` can only
+ * check internal consistency, while whether a `storageState` file actually exists
+ * decides between "reuse it" and "log in again".
+ *
+ * @param {Record<string, any>} config
+ * @param {{runDir: string, home: string, configDir?: string}} options
+ * @returns {{
+ *   mode: 'none'|'storage-state'|'login',
+ *   storageStatePath: string|null,
+ *   needsLoginSetup: boolean,
+ *   problems: string[],
+ *   notes: string[],
+ *   label: string,
+ * }}
+ */
+export function resolveAuth(config, options) {
+  const { runDir, home, configDir = runDir } = options;
+  const auth = config.auth ?? {};
+  const problems = [];
+  const notes = [];
+
+  /** Resolve a configured path against the config file's directory. */
+  const resolveConfigured = (value) => {
+    const raw = String(value ?? '').trim();
+    if (raw === '') return null;
+    if (raw.startsWith('~')) return path.join(home, raw.replace(/^~[/\\]?/, ''));
+    return path.isAbsolute(raw) ? raw : path.resolve(configDir, raw);
+  };
+
+  const configured = resolveConfigured(auth.storageState);
+  const exists = configured !== null && fs.existsSync(configured);
+
+  // Default location, so "log in once, reuse forever" works without any config.
+  const defaultPath = path.join(home, 'auth', `${path.basename(runDir).replace(/-\d{8}-\d{6}$/, '')}.json`);
+  const wantsLogin = auth.enabled === true;
+  const forceLogin = auth.forceLogin === true;
+  const saveAfterLogin = auth.saveAfterLogin !== false;
+  const reusableDefault = !forceLogin && fs.existsSync(defaultPath) ? defaultPath : null;
+
+  if (configured !== null && exists && !forceLogin) {
+    return {
+      mode: AUTH_MODE.storageState,
+      storageStatePath: configured,
+      needsLoginSetup: false,
+      problems,
+      notes: [`复用已有登录态：${configured}`],
+      label: `复用登录态（${configured}）`,
+    };
+  }
+
+  if (configured !== null && exists && forceLogin) {
+    notes.push(`auth.forceLogin 为 true，忽略已有登录态 ${configured}，重新登录。`);
+  }
+
+  if (configured !== null && !exists) {
+    if (!wantsLogin) {
+      problems.push(
+        `auth.storageState 指向的文件不存在：${configured}。` +
+          '请先用 playwright codegen 手工登录导出该文件（见 references/workflow.md），' +
+          '或设置 auth.enabled: true 并提供账号密码，让 skill 自动登录。',
+      );
+      return {
+        mode: AUTH_MODE.none,
+        storageStatePath: null,
+        needsLoginSetup: false,
+        problems,
+        notes,
+        label: '未启用登录',
+      };
+    }
+    // An explicitly configured path wins over the default one: the user asked for
+    // the session to live there, so log in and write it there.
+    notes.push(`配置的登录态文件不存在（${configured}），将重新登录并保存。`);
+    return {
+      mode: AUTH_MODE.login,
+      storageStatePath: configured,
+      needsLoginSetup: saveAfterLogin,
+      problems,
+      notes,
+      label: saveAfterLogin ? `自动登录并保存登录态（${configured}）` : '自动登录（不保存登录态）',
+    };
+  }
+
+  // "Log in once, reuse from then on" must survive an `enabled: true` config:
+  // otherwise every run pays for a login and a rotated session can never settle.
+  if (reusableDefault !== null) {
+    return {
+      mode: AUTH_MODE.storageState,
+      storageStatePath: reusableDefault,
+      needsLoginSetup: false,
+      problems,
+      notes: [`发现可复用的登录态：${reusableDefault}`],
+      label: `复用登录态（${reusableDefault}）`,
+    };
+  }
+
+  if (wantsLogin) {
+    return {
+      mode: AUTH_MODE.login,
+      storageStatePath: defaultPath,
+      needsLoginSetup: saveAfterLogin,
+      problems,
+      notes,
+      label: saveAfterLogin ? `自动登录并保存登录态（${defaultPath}）` : '自动登录（不保存登录态）',
+    };
+  }
+
+  return {
+    mode: AUTH_MODE.none,
+    storageStatePath: null,
+    needsLoginSetup: false,
+    problems,
+    notes,
+    label: '未启用登录',
+  };
+}
+
+/**
+ * Strip credentials out of a config before it is written to disk.
+ *
+ * Step values are included: `auth.steps` may legitimately contain the password
+ * placeholder, and after interpolation that is a real secret.
+ *
+ * @param {Record<string, any>} config
+ * @returns {Record<string, any>}
+ */
+export function redactConfig(config) {
+  const snapshot = JSON.parse(JSON.stringify(config));
+  const secrets = [config?.auth?.username, config?.auth?.password].filter(
+    (value) => typeof value === 'string' && value !== '',
+  );
+  if (snapshot.auth) {
+    snapshot.auth.username = snapshot.auth.username ? '<已提供>' : '';
+    snapshot.auth.password = snapshot.auth.password ? '<已提供>' : '';
+    if (Array.isArray(snapshot.auth.steps)) {
+      snapshot.auth.steps = snapshot.auth.steps.map((step) => {
+        if (step === null || typeof step !== 'object') return step;
+        const value = step.value;
+        const isSecret = secrets.includes(value) || /^\$\{?E2E_(?:USERNAME|PASSWORD)\}?$/.test(String(value ?? ''));
+        return isSecret ? { ...step, value: '<已提供>' } : step;
+      });
+    }
+  }
+  return snapshot;
 }
 
 /**
@@ -172,12 +387,13 @@ export function loadConfigFile(file, env = process.env) {
  * Precedence: CLI flags > config file > defaults.
  *
  * @param {{flags: Record<string, string|boolean>, env?: NodeJS.ProcessEnv}} options
- * @returns {{config: Record<string, any>, warnings: string[], problems: string[], source: string|null}}
+ * @returns {{config: Record<string, any>, warnings: string[], problems: string[], source: string|null, configDir: string}}
  */
 export function buildConfig({ flags, env = process.env }) {
   let base = mergeConfig({});
   const warnings = [];
   let source = null;
+  let configDir = process.cwd();
 
   const configFile = typeof flags.config === 'string' ? flags.config : null;
   if (configFile !== null) {
@@ -185,6 +401,9 @@ export function buildConfig({ flags, env = process.env }) {
     base = loaded.config;
     warnings.push(...loaded.warnings);
     source = loaded.source;
+    // Relative paths inside a config file mean "relative to that file", not to
+    // whatever directory the agent happened to invoke the script from.
+    configDir = path.dirname(loaded.source);
   }
 
   if (typeof flags.url === 'string' && flags.url.trim() !== '') base.baseURL = flags.url.trim();
@@ -209,7 +428,7 @@ export function buildConfig({ flags, env = process.env }) {
     problems.push('缺少被测网址：请提供 --url，或在配置文件中设置 baseURL。');
   }
 
-  return { config: base, warnings, problems, source };
+  return { config: base, warnings, problems, source, configDir };
 }
 
 /**
@@ -243,17 +462,33 @@ export function exampleConfigText() {
       video: 'retain-on-failure',
       ignoreHTTPSErrors: false,
       slowMo: 0,
+      // 三种登录方式，按需选一种：
+      //   1) 复用已有登录态（最省事）：{"enabled": false, "storageState": "auth/site.json"}
+      //   2) 自动登录（单页表单）：enabled=true + username/password
+      //   3) 自动登录（多步骤，如 账号 -> Continue -> 密码 -> 登录）：再加 continueSelector
       auth: {
         enabled: false,
         loginUrl: '/login',
         username: '${E2E_USERNAME}',
         password: '${E2E_PASSWORD}',
         usernameSelector: '',
+        continueSelector: '',
         passwordSelector: '',
         submitSelector: '',
         successUrl: '',
+        successSelector: '',
         storageState: '',
         saveAfterLogin: true,
+        forceLogin: false,
+        steps: [],
+      },
+      asyncTasks: {
+        submitTimeout: 30000,
+        completionTimeout: 180000,
+        pollInterval: 2000,
+      },
+      attempts: {
+        keep: 10,
       },
     },
     null,

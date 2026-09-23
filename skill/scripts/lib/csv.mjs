@@ -33,6 +33,28 @@ export function detectDelimiter(text) {
 }
 
 /**
+ * Render a matrix back to CSV.
+ *
+ * Used to hand back a readable copy of a spreadsheet that only the fallback
+ * reader could open, so the user can inspect — and re-use — what the skill saw.
+ *
+ * @param {string[][]} rows
+ * @param {{delimiter?: string}} [options]
+ * @returns {string}
+ */
+export function stringifyCsv(rows, options = {}) {
+  const delimiter = options.delimiter ?? ',';
+  const escape = (value) => {
+    const text = String(value ?? '');
+    return /["\r\n]|^\s|\s$/.test(text) || text.includes(delimiter)
+      ? `"${text.replace(/"/g, '""')}"`
+      : text;
+  };
+  // A BOM keeps Excel from mangling the Chinese headers on re-import.
+  return `\uFEFF${rows.map((row) => row.map(escape).join(delimiter)).join('\r\n')}\r\n`;
+}
+
+/**
  * Parse CSV text into a matrix of strings.
  * @param {string} text
  * @param {{delimiter?: string}} [options]

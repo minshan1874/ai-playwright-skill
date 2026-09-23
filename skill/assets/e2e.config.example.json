@@ -25,10 +25,22 @@
     "username": "${E2E_USERNAME}",
     "password": "${E2E_PASSWORD}",
     "usernameSelector": "",
+    "continueSelector": "",
     "passwordSelector": "",
     "submitSelector": "",
     "successUrl": "",
+    "successSelector": "",
     "storageState": "",
-    "saveAfterLogin": true
+    "saveAfterLogin": true,
+    "forceLogin": false,
+    "steps": []
+  },
+  "asyncTasks": {
+    "submitTimeout": 30000,
+    "completionTimeout": 180000,
+    "pollInterval": 2000
+  },
+  "attempts": {
+    "keep": 10
   }
 }

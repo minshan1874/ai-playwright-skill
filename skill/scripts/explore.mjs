@@ -23,50 +23,10 @@ import { loadPlaywright } from './lib/deps.mjs';
 import { createReporter, parseArgs } from './lib/log.mjs';
 import { rankElements, renderOutlineMarkdown } from './lib/locators.mjs';
 import { probeWritable, resolveHome } from './lib/paths.mjs';
+import { describeStepActions, resolveLocator, STEP_ACTIONS } from './lib/steps.mjs';
 
 const { json, flags } = parseArgs(process.argv.slice(2));
 const reporter = createReporter({ json, script: 'explore' });
-
-/**
- * Turn a locator spec from `--steps` into a Playwright locator.
- * Accepts a JS expression string (`"getByRole('button')"`) or a structured
- * object (`{by: 'role', role: 'button', name: '登录'}`).
- *
- * @param {any} page
- * @param {string|object} spec
- * @returns {any} locator
- */
-function resolveLocator(page, spec) {
-  if (typeof spec === 'string') {
-    // Steps files are local, agent-authored content; the expression is evaluated
-    // against `page` only. Never accept a steps file from an untrusted source.
-    return new Function('page', `return page.${spec};`)(page);
-  }
-  if (spec !== null && typeof spec === 'object') {
-    const value = spec.value ?? spec.name ?? '';
-    switch (spec.by) {
-      case 'testId':
-        return page.getByTestId(String(value));
-      case 'role':
-        return spec.name === undefined ? page.getByRole(String(spec.role)) : page.getByRole(String(spec.role), { name: String(spec.name) });
-      case 'label':
-        return page.getByLabel(String(value));
-      case 'placeholder':
-        return page.getByPlaceholder(String(value));
-      case 'text':
-        return page.getByText(String(value));
-      case 'title':
-        return page.getByTitle(String(value));
-      case 'alt':
-        return page.getByAltText(String(value));
-      case 'css':
-        return page.locator(String(value));
-      default:
-        throw new Error(`无法识别的定位方式：${JSON.stringify(spec)}。可用 by：testId/role/label/placeholder/text/title/alt/css。`);
-    }
-  }
-  throw new Error(`步骤中的 locator 必须是字符串表达式或结构化对象，收到：${JSON.stringify(spec)}。`);
-}
 
 /**
  * Execute the optional pre-capture step list.
@@ -100,6 +60,12 @@ async function runSteps(page, steps, screenshotsDir) {
         case 'check':
           await resolveLocator(page, step.locator).check();
           break;
+        case 'uncheck':
+          await resolveLocator(page, step.locator).uncheck();
+          break;
+        case 'hover':
+          await resolveLocator(page, step.locator).hover();
+          break;
         case 'waitFor':
           await resolveLocator(page, step.locator).waitFor({ state: step.state ?? 'visible' });
           break;
@@ -109,11 +75,21 @@ async function runSteps(page, steps, screenshotsDir) {
         case 'waitForLoadState':
           await page.waitForLoadState(step.state ?? 'networkidle');
           break;
+        case 'screenshot':
+          // Standalone capture. `{"action": "screenshot", "name": "after-login"}`
+          // was documented long before it was implemented; both spellings now work.
+          await page.screenshot({
+            path: path.join(screenshotsDir, `${String(step.name ?? `step-${index + 1}`)}.png`),
+            fullPage: step.fullPage !== false,
+          });
+          break;
         default:
-          throw new Error(`不支持的步骤动作 "${action}"。`);
+          throw new Error(
+            `不支持的步骤动作 "${action}"。支持的动作：${describeStepActions()}（共 ${STEP_ACTIONS.length} 个）。`,
+          );
       }
 
-      if (step.screenshot) {
+      if (step.screenshot && action !== 'screenshot') {
         const name = String(step.name ?? `step-${index + 1}`);
         await page.screenshot({ path: path.join(screenshotsDir, `${name}.png`), fullPage: true });
       }
@@ -141,7 +117,7 @@ async function main() {
     );
   }
 
-  const { config, warnings, problems } = buildConfig({ flags });
+  const { config, warnings, problems, configDir } = buildConfig({ flags });
   if (problems.length > 0) {
     process.exit(
       reporter.finish({
@@ -188,10 +164,13 @@ async function main() {
     );
   }
 
+  // A storageState may come from the flag or from the config. Either way a
+  // relative path means "relative to the config file", which is where the agent
+  // wrote it — not the directory this script happened to be invoked from.
   const storageState = typeof flags['storage-state'] === 'string'
     ? path.resolve(flags['storage-state'])
-    : config.auth.storageState
-      ? path.resolve(config.auth.storageState)
+    : String(config.auth.storageState ?? '').trim() !== ''
+      ? path.resolve(configDir, String(config.auth.storageState).trim())
       : null;
 
   if (storageState !== null && !fs.existsSync(storageState)) {
@@ -331,6 +310,9 @@ async function main() {
     timezoneId: config.timezoneId,
     browser: browserName,
     headless: config.headless,
+    // Recording whether the capture was authenticated saves the agent from
+    // guessing why a page looks like a login screen.
+    storageState: usableStorageState ?? null,
     capturedAt: new Date().toISOString(),
     elapsedMs,
   };
@@ -365,6 +347,7 @@ async function main() {
       total: elements.length,
       assertTargets: assertTargets.length,
       ambiguous: elements.filter((element) => element.ambiguous).length,
+      dynamicText: elements.filter((element) => element.dynamicText).length,
     },
   };
   fs.writeFileSync(path.join(absoluteOut, 'dom-outline.json'), `${JSON.stringify(outline, null, 2)}\n`);
@@ -404,6 +387,10 @@ async function main() {
       pageErrors.length > 0 ? '页面抛出了 JS 异常，相关功能可能不可用。' : '',
       outline.counts.ambiguous > 0
         ? `${outline.counts.ambiguous} 个元素没有语义定位器，需要为它们补 data-testid，或使用文本/层级定位。`
+        : '',
+      outline.counts.dynamicText > 0
+        ? `${outline.counts.dynamicText} 个元素的文案会随数据变化（积分/计数/日期），` +
+          '请用 outline.md 里的正则候选定位器，不要直接用字面文案。'
         : '',
     ].filter(Boolean),
   };

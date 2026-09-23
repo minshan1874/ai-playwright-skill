@@ -144,12 +144,16 @@ describe('skill bundle contents', () => {
       'deps.mjs',
       'locators.mjs',
       'log.mjs',
+      'login-script.mjs',
       'paths.mjs',
       'plan.mjs',
       'report.mjs',
       'results.mjs',
+      'spec-index.mjs',
       'spreadsheet.mjs',
+      'steps.mjs',
       'toolchain.mjs',
+      'xlsx-native.mjs',
     ]) {
       assert.ok(fs.existsSync(path.join(SKILL_DIR, 'scripts', 'lib', name)), `缺少 lib/${name}`);
     }

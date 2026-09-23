@@ -54,6 +54,40 @@ const row = page.getByRole('row', { name: /订单 2024001/ });
 await row.getByRole('button', { name: '删除' }).click();
 ```
 
+### 动态文本：不要用会变的文案定位
+
+积分余额、计数、日期、进度百分比这类文案每次跑都可能不同。**用字面量定位它们，
+今天过、明天挂，而且失败原因看起来像产品缺陷。**
+
+`outline.md` 会把这些元素标成「⚠️ 动态文本」，并给出两种正则候选：
+
+```ts
+// 字面量：文案一变就失效
+page.getByRole('button', { name: '积分 1200' })
+
+// 推荐：把数字通配掉（outline 里的首选候选）
+page.getByRole('button', { name: /积分\s+\d+/ })
+
+// 备选：只匹配稳定词，改名后仍可用
+page.getByRole('button', { name: /积分/ })
+```
+
+判断标准：**文本里的数字是「数据」还是「名字」？**
+`积分 1200`、`3/10`、`2025-01-02` 是数据，会变；`GPT-4o`、`Step 1` 是名字，不会变。
+`explore.mjs` 按这个口径判断，产物里直接给出结论。
+
+断言里同理 —— 断言余额时用正则或先取值再比较，不要写死数字：
+
+```ts
+await expect(page.getByTestId('credits')).toHaveText(/\d+/);
+```
+
+### 备选定位器
+
+`outline.md` 的「备选定位器」列给了每个元素的第二、第三选择。首选失效时按顺序试，
+**不要**直接跳到 CSS 路径 —— 那是最后一档。首选和备选都失效，通常说明页面结构真的改了，
+应该重新跑一次 `explore.mjs`，而不是把定位器改得更「宽」（`.first()`、`>> nth=0`）。
+
 ---
 
 ## 2. 等待：不要用 waitForTimeout

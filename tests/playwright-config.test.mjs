@@ -62,8 +62,14 @@ describe('playwright config generation', () => {
     assert.ok(source.includes("name: 'setup'"));
     assert.ok(source.includes('testMatch: /_auth\\.setup\\.ts/'));
     assert.ok(source.includes("dependencies: ['setup']"));
-    // The main projects must not pin a storageState the setup has not written yet.
-    assert.ok(!source.includes('storageState:'));
+    // The browser projects must load the state the setup writes — otherwise a
+    // freshly logged-in session is saved and then never used.
+    assert.ok(source.includes('storageState: "/home/auth/x.json"'));
+    // ...but the setup project itself must not start from the state it writes:
+    // a stale session would redirect away from the login form.
+    const setupStart = source.indexOf("name: 'setup'");
+    const setupProject = source.slice(setupStart, source.indexOf('},', setupStart));
+    assert.ok(!setupProject.includes('storageState'));
   });
 
   it('reuses an existing storageState without a setup project', () => {

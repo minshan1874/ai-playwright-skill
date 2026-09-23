@@ -5,6 +5,7 @@
  * is covered by unit tests without running a browser.
  */
 
+import fs from 'node:fs';
 import path from 'node:path';
 
 /** Escape a value for a Markdown table cell. */
@@ -22,8 +23,36 @@ const STATUS_BADGE = {
   flaky: '⚠️ 不稳定',
   skipped: '⏭️ 跳过',
   'not-automated': '🚫 未自动化',
+  'not-executed': '⏸️ 本次未执行',
   unknown: '❔ 未知',
 };
+
+/** Chinese numerals for section headings. */
+const NUMERALS = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+
+/**
+ * Read a test's step timeline attachment, when one was written.
+ *
+ * The timeline is what distinguishes "the task never got submitted" from "the
+ * task was still queued when the test gave up" — two failures that look identical
+ * in a screenshot.
+ *
+ * @param {object} test normalized test record
+ * @returns {{title: string, status: string, durationMs: number, error?: string, observations?: {at: number, state: string}[]}[]|null}
+ */
+function readTimeline(test) {
+  const attachment = (test.attachments ?? []).find((entry) => entry.name === 'timeline');
+  if (attachment === undefined) return null;
+  const file = attachment.path;
+  if (typeof file !== 'string' || file === '' || !fs.existsSync(file)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const steps = Array.isArray(parsed) ? parsed : parsed?.steps;
+    return Array.isArray(steps) && steps.length > 0 ? steps : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Human-readable duration. */
 function duration(ms) {
@@ -73,7 +102,18 @@ export function renderReport(input) {
 
   const counts = summary.counts ?? {};
   const verdict = summary.verdict ?? { label: '—', reasons: [] };
+  const notExecuted = summary.notExecuted ?? [];
   const lines = [];
+
+  // Sections are numbered as they are emitted: several are conditional, and a
+  // gap in the numbering reads like a rendering bug.
+  let sectionCounter = 0;
+  const section = (title) => {
+    const numeral = NUMERALS[sectionCounter] ?? String(sectionCounter + 1);
+    sectionCounter += 1;
+    lines.push(`## ${numeral}、${title}`);
+    lines.push('');
+  };
 
   // --- Header ---------------------------------------------------------------
   lines.push('# 自动化测试报告');
@@ -85,28 +125,41 @@ export function renderReport(input) {
   lines.push(`| 报告生成 | ${when(generatedAt)} |`);
   lines.push(`| 执行耗时 | ${duration(summary.durationMs)} |`);
   lines.push(`| 浏览器 | ${cell((summary.browsers ?? config.browsers ?? []).join(', '))} |`);
-  lines.push(`| 用例总数 | ${cases.length} 条（执行 ${counts.total ?? 0} 条） |`);
+  lines.push(`| 用例总数 | ${cases.length} 条（本次执行 ${counts.total ?? 0} 条） |`);
+  if (summary.attempt?.id) {
+    lines.push(`| 执行批次 | \`${cell(summary.attempt.id)}\`（每次执行独立目录，附件不跨批次混用） |`);
+  }
+  if (summary.filter?.grep || summary.filter?.project) {
+    const parts = [
+      summary.filter.grep ? `--grep "${summary.filter.grep}"` : '',
+      summary.filter.project ? `--project ${summary.filter.project}` : '',
+    ].filter(Boolean);
+    lines.push(`| 本次筛选 | ${cell(parts.join(' '))} —— 未跑到的用例见「本次未执行用例」 |`);
+  }
   lines.push(`| 运行目录 | \`${cell(runDir)}\` |`);
   lines.push('');
 
   // --- Verdict --------------------------------------------------------------
-  lines.push('## 一、测试结论');
-  lines.push('');
+  section('测试结论');
   lines.push(`### ${verdict.label}`);
   lines.push('');
   for (const reason of verdict.reasons ?? []) lines.push(`- ${reason}`);
   lines.push('');
-  lines.push('| 通过 | 失败 | 不稳定 | 跳过 | 未自动化 | 通过率 |');
-  lines.push('| --- | --- | --- | --- | --- | --- |');
+  lines.push('| 通过 | 失败 | 不稳定 | 跳过 | 本次未执行 | 未自动化 | 通过率 |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- |');
   lines.push(
     `| ${counts.passed ?? 0} | ${counts.failed ?? 0} | ${counts.flaky ?? 0} | ${counts.skipped ?? 0} | ` +
-      `${summary.notAutomated?.length ?? 0} | ${summary.passRate ?? 0}% |`,
+      `${notExecuted.length} | ${summary.notAutomated?.length ?? 0} | ${summary.passRate ?? 0}% |`,
+  );
+  lines.push('');
+  lines.push(
+    '> 「未自动化」= 从未编写自动化代码（覆盖缺口）；「本次未执行」= 已有自动化代码，' +
+      '但被 `--grep` / `--project` 排除（执行范围）。两者不可混为一谈。',
   );
   lines.push('');
 
   // --- Detail table ---------------------------------------------------------
-  lines.push('## 二、用例执行明细');
-  lines.push('');
+  section('用例执行明细');
 
   const statusById = new Map((summary.caseStatus ?? []).map((entry) => [entry.id, entry]));
   const modules = new Map();
@@ -133,7 +186,9 @@ export function renderReport(input) {
       const note = matches.some((test) => test.status === 'failed')
         ? '见下方失败详情'
         : matches.length === 0
-          ? '未生成对应自动化用例'
+          ? status === 'not-executed'
+            ? '本次未执行（被 --grep/--project 排除）'
+            : '未生成对应自动化用例'
           : matches.some((test) => test.retries > 0)
             ? `重试 ${matches.find((test) => test.retries > 0).retries} 次`
             : '';
@@ -147,8 +202,7 @@ export function renderReport(input) {
 
   // --- Failures -------------------------------------------------------------
   const failures = (summary.tests ?? []).filter((test) => test.status === 'failed');
-  lines.push('## 三、失败详情');
-  lines.push('');
+  section('失败详情');
   if (failures.length === 0) {
     lines.push('没有失败用例。');
     lines.push('');
@@ -165,6 +219,29 @@ export function renderReport(input) {
       lines.push(test.error || '（没有错误信息）');
       lines.push('```');
       lines.push('');
+
+      // Step timeline: shows how far the test actually got before it failed.
+      const timeline = readTimeline(test);
+      if (timeline !== null) {
+        lines.push('步骤时间线：');
+        lines.push('');
+        lines.push('| 步骤 | 结果 | 耗时 |');
+        lines.push('| --- | --- | --- |');
+        for (const entry of timeline) {
+          const mark = entry.status === 'failed' ? '❌' : entry.status === 'skipped' ? '⏭️' : '✅';
+          const observations = Array.isArray(entry.observations) && entry.observations.length > 0
+            ? `<br>状态变化：${entry.observations.map((item) => `${cell(item.state)}（${duration(item.at)}）`).join(' → ')}`
+            : '';
+          lines.push(`| ${cell(entry.title)} | ${mark} | ${duration(entry.durationMs)}${observations} |`);
+        }
+        lines.push('');
+        const lastFailed = [...timeline].reverse().find((entry) => entry.status === 'failed');
+        if (lastFailed !== undefined) {
+          lines.push(`> 失败发生在「${cell(lastFailed.title)}」这一步；此前的步骤均已成功。`);
+          lines.push('');
+        }
+      }
+
       const shots = (test.attachments ?? []).filter(
         (attachment) => attachment.contentType?.startsWith('image/') || attachment.name?.includes('screenshot'),
       );
@@ -183,10 +260,9 @@ export function renderReport(input) {
   }
 
   // --- Not automated --------------------------------------------------------
-  lines.push('## 四、未自动化用例');
-  lines.push('');
+  section('未自动化用例（覆盖缺口）');
   if ((summary.notAutomated ?? []).length === 0) {
-    lines.push('所有用例都已自动化并执行。');
+    lines.push('所有用例都已自动化。');
     lines.push('');
   } else {
     lines.push(`以下 ${summary.notAutomated.length} 条用例没有生成自动化用例，**不计入通过率**：`);
@@ -199,10 +275,32 @@ export function renderReport(input) {
     lines.push('');
   }
 
+  // --- Not executed this run ------------------------------------------------
+  if (notExecuted.length > 0) {
+    section('本次未执行用例（筛选执行，非覆盖缺口）');
+    const parts = [
+      summary.filter?.grep ? `--grep "${summary.filter.grep}"` : '',
+      summary.filter?.project ? `--project ${summary.filter.project}` : '',
+    ].filter(Boolean);
+    lines.push(
+      `以下 ${notExecuted.length} 条用例**已经有自动化代码**，只是被本次执行的筛选条件` +
+        `${parts.length > 0 ? `（${cell(parts.join(' '))}）` : ''}排除在外，` +
+        '因此没有本次结果。**它们不是覆盖缺口**：去掉筛选参数重跑即可得到结果。',
+    );
+    lines.push('');
+    lines.push('| 用例ID | 模块 | 标题 | 优先级 | 状态 |');
+    lines.push('| --- | --- | --- | --- | --- |');
+    for (const entry of notExecuted) {
+      lines.push(
+        `| ${cell(entry.id)} | ${cell(entry.module)} | ${cell(entry.title)} | ${cell(entry.priority)} | ⏸️ 本次未执行 |`,
+      );
+    }
+    lines.push('');
+  }
+
   // --- Anomalies ------------------------------------------------------------
   if ((summary.unmatchedTests ?? []).length > 0) {
-    lines.push('## 五、未关联到用例的测试');
-    lines.push('');
+    section('未关联到用例的测试');
     lines.push('这些测试没有匹配到用例清单中的 ID，可能是新增的临时验证：');
     lines.push('');
     lines.push('| 标题 | 用例ID | 位置 |');
@@ -214,8 +312,7 @@ export function renderReport(input) {
   }
 
   if ((summary.infrastructureErrors ?? []).length > 0) {
-    lines.push('## 六、基础设施错误');
-    lines.push('');
+    section('基础设施错误');
     lines.push('这些错误发生在用例执行之外，可能导致部分用例根本没有运行：');
     lines.push('');
     for (const error of summary.infrastructureErrors) {
@@ -254,10 +351,17 @@ export function renderReport(input) {
   );
   lines.push(`| 视口 | ${config.viewport?.width ?? '—'}×${config.viewport?.height ?? '—'} |`);
   lines.push(`| 语言 / 时区 | ${cell(config.locale ?? '—')} / ${cell(config.timezoneId ?? '—')} |`);
-  lines.push(`| 单用例超时 | ${duration(config.timeout)} |`);
+  lines.push(`| 单用例超时 | ${duration(config.timeout)}（等待异步任务的用例会自动放宽） |`);
+  lines.push(
+    `| 异步任务预算 | 提交 ${duration(config.asyncTasks?.submitTimeout ?? 0)} / ` +
+      `完成 ${duration(config.asyncTasks?.completionTimeout ?? 0)} |`,
+  );
   lines.push(`| 重试次数 | ${config.retries ?? 0} |`);
   lines.push(`| 并发数 | ${config.workers ?? 1} |`);
-  lines.push(`| 登录态复用 | ${config.auth?.enabled ? '已启用' : '未启用'} |`);
+  lines.push(`| 登录方式 | ${cell(summary.authLabel ?? (config.auth?.enabled ? '自动登录' : '未启用'))} |`);
+  if (summary.attempt?.id) {
+    lines.push(`| 执行批次目录 | \`${cell(summary.attempt.dir ?? '')}\` |`);
+  }
   lines.push('');
 
   if (plan?.raw) {

@@ -11,6 +11,7 @@ import path from 'node:path';
 
 import { createReporter, parseArgs } from './lib/log.mjs';
 import { CANONICAL_COLUMNS, countByPriority, groupByModule, mapHeaderRow, normalizeCase, validateCases } from './lib/cases.mjs';
+import { stringifyCsv } from './lib/csv.mjs';
 import { compactRows, readRows, SUPPORTED_EXTENSIONS } from './lib/spreadsheet.mjs';
 
 /** How many leading rows to scan while looking for the header. */
@@ -74,7 +75,14 @@ async function main() {
   }
 
   const absoluteInput = path.resolve(input);
-  const { format, sheet: sheetName, rows, sheets } = await readRows(absoluteInput, { sheet });
+  const {
+    format,
+    sheet: sheetName,
+    rows,
+    sheets,
+    strategy,
+    warnings: readWarnings,
+  } = await readRows(absoluteInput, { sheet });
 
   if (rows.length === 0) {
     process.exit(
@@ -106,7 +114,7 @@ async function main() {
     );
   }
 
-  const warnings = validateCases(cases);
+  const warnings = [...(readWarnings ?? []), ...validateCases(cases)];
   if (unknown.length > 0) {
     warnings.push(`以下列名未被识别，已忽略：${unknown.join(', ')}。如需纳入，请参考 references/case-format.md。`);
   }
@@ -128,6 +136,7 @@ async function main() {
     source: absoluteInput,
     format,
     sheet: sheetName,
+    strategy,
     ...(sheets ? { sheets } : {}),
     parsedAt: new Date().toISOString(),
     headerRow: headerIndex + 1,
@@ -148,7 +157,22 @@ async function main() {
     written = absoluteOut;
   }
 
-  reporter.note(`已解析 ${cases.length} 条用例，来自 ${format} 文件 ${path.basename(absoluteInput)}（工作表：${sheetName}）。`);
+  // When the primary reader could not open a spreadsheet, leave a readable copy
+  // of exactly what the fallback saw. Silently "fixing" a file the user cannot
+  // reproduce is how a parsing bug turns into a mysterious wrong test result.
+  let recovered = null;
+  if (out !== null && format === 'xlsx' && strategy !== 'exceljs') {
+    const absoluteOut = path.resolve(out);
+    recovered = path.join(path.dirname(absoluteOut), `${path.basename(absoluteInput, path.extname(absoluteInput))}.recovered.csv`);
+    fs.writeFileSync(recovered, stringifyCsv(compactRows(rows)));
+    warnings.push(`已把解析到的内容另存为 ${recovered}，请核对无误后再执行测试。`);
+    payload.recovered = recovered;
+  }
+
+  reporter.note(
+    `已解析 ${cases.length} 条用例，来自 ${format} 文件 ${path.basename(absoluteInput)}` +
+      `（工作表：${sheetName}，读取方式：${strategy}）。`,
+  );
   for (const group of payload.byModule) {
     reporter.note(`  · ${group.module}: ${group.count} 条`);
   }
@@ -165,7 +189,10 @@ async function main() {
       output: written,
       source: absoluteInput,
       format,
+      strategy,
       sheet: sheetName,
+      ...(sheets ? { sheets } : {}),
+      ...(recovered ? { recovered } : {}),
       headerRow: headerIndex + 1,
       columns: mapping,
       unknownColumns: unknown,
@@ -179,11 +206,21 @@ async function main() {
 }
 
 main().catch((error) => {
+  // A format problem and a content problem need opposite responses: re-export the
+  // file versus edit it. Never collapse them into one vague "please fix".
+  const isFormatIssue = error?.kind === 'format-incompatible' || error?.name === 'SpreadsheetFormatError';
+  const isHeaderIssue = /表头|列名/.test(String(error?.message ?? ''));
+
   process.exit(
     reporter.finish({
       ok: false,
       error: error?.message ?? String(error),
-      hint: '请修正用例文件后重试；列名要求见 references/case-format.md。',
+      hint: isFormatIssue
+        ? error.hint
+        : isHeaderIssue
+          ? `请对照 references/case-format.md 修正列名后重试。标准列：${CANONICAL_COLUMNS.join(' | ')}。`
+          : '请修正用例文件后重试；列名要求见 references/case-format.md。',
+      ...(isFormatIssue ? { formatIssue: true, attempts: error.attempts } : {}),
     }),
   );
 });

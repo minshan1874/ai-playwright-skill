@@ -80,6 +80,41 @@ skill 的脚本从运行目录解析依赖，而不是从 skill 目录。装到�
 node "$SKILL/scripts/bootstrap.mjs"          # 正确
 ```
 
+注意：`.xlsx` 现在有内置的备用读取器，所以缺 exceljs **不再**导致解析失败 ——
+`parse-cases.mjs` 会照常解析并在 `warnings` 里说明用了内置读取器。
+仍然建议装好依赖，exceljs 对日期、数字格式的处理更完整。
+
+### `用例文件格式兼容问题` / `Cannot read properties of undefined (reading 'sheets')`
+
+**这是文件格式兼容问题，不是你的用例内容写错了。**
+
+`Cannot read properties of undefined (reading 'sheets')` 来自 exceljs 内部：它解析
+`xl/workbook.xml` 时假定元素结构固定，遇到不认识的命名空间或结构（第三方导出工具生成的
+`.xlsx`、Strict OOXML、带前缀的元素）就会拿到 `undefined` 再取 `.sheets`。
+这个报错完全不提真正的原因，很容易被误读成「表格有问题」。
+
+现在的处理顺序是：
+
+1. exceljs 读取 → 失败则
+2. 内置的命名空间无关读取器（自己解 ZIP + 解析 XML）→ 失败则
+3. 按内容而非扩展名再试一次：HTML 表格 / 分隔符文本 → 都不行才报错
+
+报错时会列出每种方式各自的失败原因（`attempts`），并明确写成「格式兼容问题」。
+如果内置读取器成功，还会把解析到的内容另存为
+`<runDir>/<原文件名>.recovered.csv`（返回值的 `recovered` 字段），**请打开核对**：
+备用读取器不解释单元格的数字格式，日期可能显示为序列号。
+
+修复办法（任选其一）：
+
+- 用 Excel / WPS / Numbers 打开后「另存为 .csv（UTF-8）」，重新解析；
+- 或另存为标准 `.xlsx`；
+- 或把表格直接贴成 Markdown 表格（`| 列 | 列 |`）交给 skill。
+
+### 列名识别失败（`未能识别用例表头`）
+
+这才是内容问题：表格里没有「用例标题」和「操作步骤」这两列。
+按 `references/case-format.md` 对齐列名，或让用户参照 `assets/case-template.xlsx` 填。
+
 ### 版本冲突
 
 `bootstrap.mjs` 默认钉死 `@playwright/test@1.63.0`，与已下载的浏览器版本对齐。
@@ -241,8 +276,17 @@ node "$SKILL/scripts/bootstrap.mjs" --install-browsers
 
 ### 需要登录才能访问
 
-页面被重定向到登录页 → 配置 `auth`（见 `references/workflow.md` 第 2 节），
-或提供 `--storage-state`。
+页面被重定向到登录页。三种登录方式任选（见 `references/workflow.md` 第 2 节）：
+
+- 只复用已有登录态：`{"auth": {"enabled": false, "storageState": "auth/site.json"}}`
+  （`storageState` 相对路径按配置文件所在目录解析），或 `explore.mjs --storage-state <文件>`；
+- 自动登录：`auth.enabled: true` + `loginUrl` + `username`/`password`；
+- 多步骤登录：再加 `auth.continueSelector`，或用 `auth.steps` 自定义。
+
+**Google / 第三方 OAuth 不要走自动登录**：Google 会拦截自动化浏览器。
+让用户用 `codegen` 手工登录一次导出登录态。
+
+登录态文件不存在时，`run.mjs` 会直接报错并说明怎么办，不会静默跳过登录。
 
 ### 页面是空白 / 只有骨架
 
@@ -274,6 +318,17 @@ node "$SKILL/scripts/confirm-plan.mjs" --plan "<runDir>/plan.md" --note "用户�
 - TypeScript 编译错误 → 检查 spec 文件的语法与 import 路径
 - `playwright.config.ts` 被手工改坏 → 删掉它，`run.mjs` 会重新生成
 
+### `browserContext.close: ENOENT` / 报告里混进了上一次的截图
+
+旧版本在同一个 `test-results/` 里反复重跑，上一次留下的 trace、截图会让 Playwright
+清理目录时报 ENOENT，报告也可能混入上一轮的附件。
+
+现在每次执行都写入独立的 `<runDir>/attempts/attempt-<时间戳>/`，
+`results-summary.json` 与 `report.md` 只反映最近一次执行。如果还看到这种报错：
+
+- 确认用的是同一批 `attempts/` 目录，不要把旧附件手工拷回去；
+- 磁盘上的历史批次由 `attempts.keep`（默认 10）控制，可以调小。
+
 ### 所有用例同时失败，截图停在登录页
 
 登录态失效。重新登录一次（删除 `~/.dsh/playwright-e2e/auth/<项目>.json` 后重跑），
@@ -287,6 +342,7 @@ node "$SKILL/scripts/confirm-plan.mjs" --plan "<runDir>/plan.md" --note "用户�
 | 用了 `waitForTimeout` 掩盖问题 | 换成状态等待 |
 | 定位器指向了不存在的元素 | 看 trace，重新对照 `outline.md` |
 | 并发太高压垮环境 | 把 `workers` 降到 1 |
+| 在等异步任务（文生图/导出） | 用 `waitForAsyncTask()`，调 `asyncTasks.completionTimeout`；**不要**调全局 `timeout` |
 
 ---
 
@@ -294,8 +350,18 @@ node "$SKILL/scripts/confirm-plan.mjs" --plan "<runDir>/plan.md" --note "用户�
 
 ### 通过率看起来偏低，因为有未自动化用例
 
-未自动化用例**不计入通过率**，它们单独列在报告第四节。这是有意的：
+未自动化用例**不计入通过率**，它们单独列在报告里。这是有意的：
 避免「跑了 3 条全过」被读成「18 条全过」。
+
+### 报告说「本次未执行」而不是「未自动化」
+
+这是两回事，报告也分成两节：
+
+- **未自动化**（`notAutomated`）= 从未写过自动化代码 → 覆盖缺口；
+- **本次未执行**（`notExecuted`）= 已有代码，但被 `--grep` / `--project` 排除 → 执行范围。
+
+用 `--grep` 重跑过就会出现后者。去掉筛选参数重跑即可补齐，**不要**把它当成缺口汇报。
+判定依据是 `specs/` 下是否真的有对应用例代码（静态扫描 `caseId` 注解与 `[用例ID]` 标题）。
 
 ### `未关联到用例的测试`
 
@@ -309,7 +375,30 @@ Playwright 的错误信息通常很长。看 trace 最直接：
 node ~/.dsh/playwright-e2e/node_modules/playwright/cli.js show-trace "<trace 文件路径>"
 ```
 
-trace 文件路径在报告的失败详情里，或 `<runDir>/test-results/` 下。
+trace 文件路径在报告的失败详情里，或最近一批
+`<runDir>/attempts/attempt-<时间戳>/test-results/` 下。
+
+### 报告里只有失败步骤，没有步骤时间线
+
+步骤时间线由 `_fixtures.ts` 的 `step()` / `waitForAsyncTask()` 记录，
+随用例结束写成 `timeline.json` 附件。以下情况不会有时间线：
+
+- 用例没有用 `step()` 包步骤（直接写裸断言）；
+- 用例被 Playwright 直接杀掉（超时杀死 worker），时间线来不及落盘。
+
+### 异步任务一直停在 Queued，用例被判失败
+
+先看步骤时间线的状态变化，再决定改什么：
+
+| 时间线表现 | 含义 | 处理 |
+| --- | --- | --- |
+| 停在「提交…」步骤 | 提交就没成功 | 查接口 4xx/5xx、按钮是否可点，属产品/用例问题 |
+| 状态一直 `Queued` | 排队久，不是失败 | 调大 `asyncTasks.completionTimeout`（如 300000） |
+| 状态推进后卡住 | 生成环节有问题 | 结合 `network.json` 判断，属产品问题 |
+| 状态始终「未知」 | 没读到状态元素 | 定位器或状态文案不对，重新探索页面 |
+
+**不要**用调大全局 `timeout` 的方式解决 —— 那只会让所有用例的失败都变慢。
+`waitForAsyncTask()` 已经只给当前用例放宽超时。
 
 ---
 

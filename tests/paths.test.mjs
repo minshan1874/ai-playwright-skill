@@ -5,13 +5,17 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
 import {
+  attemptPaths,
   authDir,
   browserCacheDir,
   describeWriteDenial,
   ensureHomeLayout,
   expandTilde,
+  listAttempts,
+  nextAttemptId,
   npmCacheDir,
   probeWritable,
+  pruneAttempts,
   resolveHome,
   runDirPath,
   runPaths,
@@ -170,5 +174,64 @@ describe('ensureHomeLayout', () => {
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
     }
+  });
+});
+
+describe('execution attempts', () => {
+  /** @type {string} */
+  let runDir;
+  before(() => {
+    runDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pw-e2e-attempt-'));
+  });
+  after(() => {
+    fs.rmSync(runDir, { recursive: true, force: true });
+  });
+
+  it('gives every attempt its own artifact directories', () => {
+    const attempt = attemptPaths(runDir, 'attempt-20250101-120000');
+    assert.equal(attempt.dir, path.join(runDir, 'attempts', 'attempt-20250101-120000'));
+    assert.equal(attempt.testResults, path.join(attempt.dir, 'test-results'));
+    assert.equal(attempt.jsonResults, path.join(attempt.dir, 'test-results', 'results.json'));
+    assert.equal(attempt.htmlReport, path.join(attempt.dir, 'playwright-report'));
+    assert.equal(attempt.meta, path.join(attempt.dir, 'attempt.json'));
+    // Artifacts must not be shared with the run root or with another attempt.
+    assert.ok(!attempt.testResults.startsWith(path.join(runDir, 'test-results')));
+    assert.notEqual(attempt.testResults, attemptPaths(runDir, 'attempt-20250101-120001').testResults);
+  });
+
+  it('never hands out the same id twice', () => {
+    const date = new Date(2025, 0, 1, 12, 0, 0);
+    const first = nextAttemptId(runDir, date);
+    fs.mkdirSync(path.join(runDir, 'attempts', first), { recursive: true });
+    const second = nextAttemptId(runDir, date);
+    assert.notEqual(first, second);
+    assert.ok(second.startsWith(first));
+  });
+
+  it('lists attempts oldest first and prunes the oldest beyond the limit', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pw-e2e-prune-'));
+    try {
+      for (const id of ['attempt-20250101-000001', 'attempt-20250101-000002', 'attempt-20250101-000003']) {
+        fs.mkdirSync(path.join(dir, 'attempts', id), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'attempts', id, 'marker.txt'), id);
+      }
+      assert.deepEqual(listAttempts(dir), [
+        'attempt-20250101-000001',
+        'attempt-20250101-000002',
+        'attempt-20250101-000003',
+      ]);
+
+      const removed = pruneAttempts(dir, 2);
+      assert.deepEqual(removed, ['attempt-20250101-000001']);
+      assert.deepEqual(listAttempts(dir), ['attempt-20250101-000002', 'attempt-20250101-000003']);
+      // Pruning nothing is a no-op, not an error.
+      assert.deepEqual(pruneAttempts(dir, 5), []);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('exposes the attempts directory from runPaths', () => {
+    assert.equal(runPaths('/run/x').attempts, path.join('/run/x', 'attempts'));
   });
 });

@@ -13,6 +13,12 @@ const lit = (value) => JSON.stringify(String(value ?? ''));
 
 /**
  * Build the contents of `playwright.config.ts`.
+ *
+ * The per-test timeout is deliberately left at the configured value: an async
+ * product task can take minutes, but inflating every test's budget would also
+ * make every genuine hang take minutes to fail. `waitForAsyncTask` in the
+ * generated fixtures extends the budget of the test that actually needs it.
+ *
  * @param {{
  *   paths: {specs: string, testResults: string, jsonResults: string, htmlReport: string},
  *   config: Record<string, any>,
@@ -24,15 +30,23 @@ const lit = (value) => JSON.stringify(String(value ?? ''));
 export function renderPlaywrightConfig({ paths, config, authStatePath, hasAuthSetup }) {
   const projects = [];
   if (hasAuthSetup) {
+    // The setup project must NOT start from the state it is about to write: a
+    // stale (or half-expired) session would redirect away from the login form.
     projects.push(`    {
       name: 'setup',
       testMatch: /_auth\\.setup\\.ts/,
     },`);
   }
   for (const browser of config.browsers) {
+    // storageState belongs to the browser projects. Setting it globally would
+    // also apply it to the setup project; omitting it entirely (as an earlier
+    // version did whenever a setup project existed) meant a freshly logged-in
+    // session was saved and then never used.
+    const use = [`browserName: ${lit(browser)}`];
+    if (authStatePath !== null) use.push(`storageState: ${lit(authStatePath)}`);
     projects.push(`    {
       name: ${lit(browser)},
-      use: { browserName: ${lit(browser)} },${hasAuthSetup ? `\n      dependencies: ['setup'],` : ''}
+      use: { ${use.join(', ')} },${hasAuthSetup ? `\n      dependencies: ['setup'],` : ''}
     },`);
   }
 
@@ -47,8 +61,13 @@ export function renderPlaywrightConfig({ paths, config, authStatePath, hasAuthSe
     `    screenshot: ${lit(config.screenshot)},`,
     `    video: ${lit(config.video)},`,
     `    testIdAttribute: 'data-testid',`,
-    ...(authStatePath !== null && !hasAuthSetup ? [`    storageState: ${lit(authStatePath)},`] : []),
   ];
+
+  const asyncNote =
+    `  // 异步任务（文生图、导出等）用 _fixtures.ts 的 waitForAsyncTask 等待：\n` +
+    `  // 它会为该用例单独放宽超时（提交 ${Number(config.asyncTasks?.submitTimeout ?? 0)}ms / ` +
+    `完成 ${Number(config.asyncTasks?.completionTimeout ?? 0)}ms），\n` +
+    `  // 因此这里的 timeout 不需要按最慢的异步任务设置。\n`;
 
   return `// 由 playwright-e2e skill 自动生成，请勿手工修改（每次执行都会覆盖）。
 import { defineConfig } from '@playwright/test';
@@ -56,7 +75,7 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: ${lit(paths.specs)},
   outputDir: ${lit(paths.testResults)},
-  timeout: ${Number(config.timeout)},
+${asyncNote}  timeout: ${Number(config.timeout)},
   expect: { timeout: ${Number(config.expectTimeout)} },
   fullyParallel: false,
   workers: ${Number(config.workers)},

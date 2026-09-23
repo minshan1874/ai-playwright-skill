@@ -3,7 +3,7 @@ name: playwright-e2e
 description: 把被测网址和功能测试用例（Excel/CSV/Markdown）变成可执行的端到端自动化测试。自动准备 Playwright 环境、解析用例、输出测试计划并等待用户确认，确认后探索真实页面、固化为 Playwright 用例、执行测试，最终产出 Markdown 测试报告、Playwright HTML 报告与 JSON 结果。适用于功能验证、回归测试和上线前检查。
 whenToUse: 当用户提供被测网址和功能测试用例（或要求「帮我测一下这个网站/这个功能」），需要生成测试计划、自动执行端到端测试并输出测试报告时使用。
 metadata:
-  version: 1.7.0
+  version: 1.8.0
   requires:
     node: ">=20"
 ---
@@ -36,8 +36,11 @@ SKILL="<本 skill 的基础目录>"     # 例如 ~/.dsh/skills/playwright-e2e
 1. **计划必须先经用户确认。** 产出 `plan.md` 后**停下来**，把计划内容展示给用户，
    等待用户明确表示同意（例如「确认」「可以」「开始执行」）。**不得自行进入执行阶段。**
    用户提出修改就更新计划，然后**再次等待确认**。
-2. **绝不伪造结果。** 没跑过的用例就是「未自动化」，跑失败的用例就是「失败」。
+2. **绝不伪造结果。** 没写自动化代码的用例就是「未自动化」，跑失败的用例就是「失败」。
    不得为了让报告好看而跳过、注释掉或放宽断言。无法自动化的用例要在计划里说明、在报告里列出。
+   **注意区分两个口径**：`未自动化`（从未写过用例代码，是覆盖缺口）与
+   `本次未执行`（已有代码，但被 `--grep` / `--project` 排除，是执行范围）。
+   汇报时必须说清是哪一种，不要把筛选执行说成覆盖缺口，也不要用它掩盖缺口。
 3. **不污染被测项目。** 测试代码、依赖、截图、报告全部写在独立运行目录里
    （默认 `~/.dsh/playwright-e2e/runs/<项目>-<时间戳>/`）。不要往被测项目里写任何文件。
    一旦用了 `PLAYWRIGHT_E2E_HOME`，**后续每一个脚本都必须继承同一个环境变量**，
@@ -165,6 +168,51 @@ PLAYWRIGHT_E2E_HOME="<可写目录>" node "$SKILL/scripts/bootstrap.mjs"
 改成无头就等于承诺落空 —— 必须先告诉用户「当前环境无法弹窗口，测试人员将看不到
 执行过程」，说明原因，得到同意后再降级，并在最终报告里注明。
 
+### 登录：先确认用哪一种方式
+
+被测系统需要登录时，**在阶段 1 就问清用户**，不要等到 `run.mjs` 报错。
+三种方式按优先级选：
+
+| 方式 | 配置 | 什么时候用 |
+| --- | --- | --- |
+| ① 复用已有登录态 | `{"auth": {"enabled": false, "storageState": "auth/site.json"}}` | 用户能手工登录一次并导出登录态（推荐给 Google/SSO/扫码/短信登录） |
+| ② 自动登录（单页表单） | `{"auth": {"enabled": true, "loginUrl": "/login", "username": "${E2E_USERNAME}", "password": "${E2E_PASSWORD}"}}` | 账号密码在同一页，且无验证码 |
+| ③ 自动登录（多步骤） | 在 ② 基础上加 `"continueSelector": "#continue"` | 「账号 → 继续 → 密码 → 登录」两步表单 |
+
+方式 ① **不需要** `loginUrl`、用户名或密码占位符 —— 只复用登录态时不要求登录配置。
+`storageState` 的相对路径按**配置文件所在目录**解析。
+
+**Google / 第三方 OAuth 登录：不要尝试自动输入账号密码。** Google 会拦截自动化浏览器
+（提示「此浏览器或应用可能不安全」），而且账号还可能触发 2FA。正确做法是让用户手工登录
+一次再复用登录态：
+
+```bash
+node ~/.dsh/playwright-e2e/node_modules/playwright/cli.js codegen \
+  --save-storage="$HOME/.dsh/playwright-e2e/auth/site.json" "<被测网址>"
+```
+
+然后配置 `{"auth": {"enabled": false, "storageState": "~/.dsh/playwright-e2e/auth/site.json"}}`。
+登录态会过期，症状是**所有用例同时找不到元素、截图停在登录页** —— 重新导出即可，
+不要去改用例。
+
+多步骤登录还可以用 `auth.steps` 完全自定义（与探索步骤文件同一套动作）：
+
+```json
+{ "auth": { "enabled": true, "loginUrl": "/login", "steps": [
+  { "action": "fill", "locator": { "by": "css", "value": "#account" }, "value": "${E2E_USERNAME}" },
+  { "action": "click", "locator": { "by": "role", "role": "button", "name": "Continue" } },
+  { "action": "waitFor", "locator": { "by": "css", "value": "#password" } },
+  { "action": "fill", "locator": { "by": "css", "value": "#password" }, "value": "${E2E_PASSWORD}" },
+  { "action": "click", "locator": { "by": "role", "role": "button", "name": "登录" } }
+] } }
+```
+
+**登录成功的判据优先用页面元素，而不是 URL**：`auth.successSelector` 指向登录后才出现的
+稳定元素（账户菜单、模型配置、Upgrade 按钮）。探索产物的 `outline.md` 里有
+「登录成功信号候选」一节，直接抄里面的定位器即可。
+
+细节与排错见 `references/workflow.md`。
+
 ### 阶段 1 — 解析用例并生成测试计划
 
 如果用户只给了网址、没有结构化用例，**先问用户是否允许**根据页面探索结果生成
@@ -188,6 +236,19 @@ node "$SKILL/scripts/parse-cases.mjs" \
 如果表头识别失败，把 `error` 里的期望列名告诉用户，请其修正表格或确认列名映射。
 列结构定义见 `references/case-format.md`；用户没有模板时，把 `assets/case-template.xlsx`
 （或 `assets/case-template.csv`）给他照着填。
+
+**解析失败先分性质，再决定怎么说：**
+
+- 返回 `formatIssue: true` → 这是**文件格式兼容问题**，不是用例内容有误。
+  `error` 里会列出每种读取方式各自的失败原因（`attempts`），`hint` 里给出修复办法。
+  **不要**对用户说「你的表格写错了」；应说明是第三方导出工具生成的 `.xlsx` 结构与解析器
+  不兼容，请另存为 `.csv` 或标准 `.xlsx`。若 `recovered` 字段非空，说明 skill 已用内置
+  读取器解析成功并另存了一份 CSV —— 把这个路径给用户核对。
+- 报错含「表头」/「列名」→ 这才是内容问题，按 `references/case-format.md` 对齐列名。
+
+`.xlsx` 的读取顺序是 exceljs → 内置命名空间无关读取器；内容其实是 HTML 表格或
+分隔符文本时，会按内容而非扩展名解析，并在 `warnings` 里说明。`strategy` 字段告诉你
+实际用的是哪一种。
 
 生成计划骨架：
 
@@ -226,13 +287,14 @@ node "$SKILL/scripts/explore.mjs" \
 ```
 
 需要登录后才能看到的页面，写一个步骤文件（格式见 `references/workflow.md`）后用
-`--steps <文件>`，或先跑一次登录并复用登录态。
+`--steps <文件>`，或先跑一次登录并复用登录态（`--storage-state <文件>`，
+或配置里的 `auth.storageState`）。步骤文件里 `{"action": "screenshot"}` 是合法动作。
 
 产物在 `<runDir>/explore/`：
 
 | 文件 | 用途 |
 | --- | --- |
-| `outline.md` | **优先读这个**：可操作元素 + 推荐定位器（已按稳定性排序），以及可断言的只读元素 |
+| `outline.md` | **优先读这个**：可操作元素 + 推荐定位器 + **备选定位器**，标出「稳定文本 / 动态文本」，并给出「登录成功信号候选」 |
 | `aria.yml` | 语义树，写 `getByRole` 的依据 |
 | `dom-outline.json` | 完整元素数据与全部候选定位器 |
 | `page.png` | 全页截图，确认页面确实是预期的那一个 |
@@ -246,10 +308,33 @@ node "$SKILL/scripts/explore.mjs" \
 `<runDir>/specs/` 下编写 `.spec.ts`：
 
 - 每个用例一个 `test()`，标题以 `[用例ID]` 开头，并写入 `caseId` / `priority` / `module`
-  注解 —— 报告靠这个把结果关联回用例表。
-- 步骤用 `_fixtures.ts` 里的 `step()` 包起来，失败时会自动截图并定位到具体步骤。
-- 定位器优先用 `getByRole` / `getByLabel` / `getByTestId`，**禁止用 `waitForTimeout` 兜底**。
+  注解 —— 报告靠这个把结果关联回用例表，也靠它区分「未自动化」与「本次未执行」。
+- 步骤用 `_fixtures.ts` 里的 `step()` 包起来，失败时会自动截图、定位到具体步骤，
+  并把步骤时间线写进报告。
+- 定位器优先用 `getByTestId` / `getByRole` / `getByLabel`，**禁止用 `waitForTimeout` 兜底**。
+- **标注为「动态文本」的元素不要直接用字面文案定位**（积分余额、计数、日期都会变）。
+  用 `outline.md` 给出的正则候选（如 `getByRole('button', { name: /积分\s+\d+/ })`），
+  或只匹配稳定词的备选定位器。
 - 计划里标为「无法自动化」的用例，**不要**编造一个假用例，留空即可，报告会列为未自动化。
+
+被测功能里有**异步任务**（文生图、导出、批处理）时，用 `_fixtures.ts` 的
+`waitForAsyncTask()` 等待，不要用固定 `waitForTimeout`：
+
+```ts
+await step(page, '提交生成任务', async () => {
+  await page.getByRole('button', { name: '生成' }).click({ timeout: ASYNC_SUBMIT_TIMEOUT });
+});
+
+await waitForAsyncTask(page, '等待生成完成', async () => {
+  const status = await page.getByTestId('task-status').textContent();
+  if (status === '已完成') return true;      // 完成
+  return status ?? '';                        // 其余状态会记进时间线
+});
+```
+
+提交超时用 `ASYNC_SUBMIT_TIMEOUT`，完成预算用 `ASYNC_COMPLETION_TIMEOUT`
+（两者都来自配置，见下）。这样「提交失败」和「生成较慢」在报告里是可区分的：
+前者停在提交步骤，后者会留下 `Queued → 生成中 → 已完成` 的状态变化记录。
 
 ### 阶段 4 — 执行
 
@@ -260,6 +345,12 @@ node "$SKILL/scripts/run.mjs" --run-dir "<runDir>" --json
 `run.mjs` 会生成 `playwright.config.ts` 并执行 `<runDir>/specs/` 下的全部用例，
 结果归一化到 `<runDir>/results-summary.json`。
 
+**每次执行都写入独立的批次目录** `<runDir>/attempts/attempt-<时间戳>/`，里面有自己的
+`test-results/`、`results.json`、`playwright-report/` 和 `attempt.json`。
+这样重跑不会把上一次的截图、trace 混进本次结果（历史上正是旧 trace 导致
+`browserContext.close ENOENT`）。`results-summary.json` 与 `report.md` 始终只反映
+**最近一次**执行；历史批次保留最近 `attempts.keep` 个（默认 10）。
+
 - `ok: true` → 测试确实跑起来了，`counts` 里的失败数是真实测试结果，继续阶段 5。
 - `ok: false` → 基础设施问题（浏览器没装、编译失败、没有用例文件）。看 `hint` 修复后重跑，
   **不要**把这类失败写进报告当成测试结论。
@@ -267,6 +358,10 @@ node "$SKILL/scripts/run.mjs" --run-dir "<runDir>" --json
 只想重跑部分用例时加 `--grep "<模式>"`。**重跑仍然必须使用同一个已确认的
 `plan.md`**。`--skip-plan-check` 只供维护者排查脚本问题，普通测试流程**不得使用** ——
 它绕过的是本轮流程唯一的用户确认点。
+
+**`--grep` 之后报告口径要说清**：没被选中的用例会进入 `notExecuted`（本次未执行），
+而不是 `notAutomated`（未自动化）。汇报时用「本次只筛跑了 TC-001~003，其余用例本次未执行」
+这种说法；`verdict` 会显示 `⚠️ 筛选执行（未跑全量）`。
 
 ### 阶段 5 — 输出报告
 
@@ -276,10 +371,11 @@ node "$SKILL/scripts/report.mjs" --run-dir "<runDir>" --json
 
 产出 `<runDir>/report.md`，并在对话里给用户一份摘要：
 
-- 结论（通过 / 未通过 / 部分覆盖）与通过率
-- 失败用例清单与失败原因
+- 结论（通过 / 未通过 / 部分覆盖 / 筛选执行）与通过率
+- 失败用例清单与失败原因；有步骤时间线的失败，指出**卡在哪一步**
 - **未自动化用例清单及原因**（这是覆盖缺口，必须主动说，不能藏）
-- 产物路径：`report.md`、`playwright-report/index.html`、`results-summary.json`
+- **本次未执行用例**（被 `--grep`/`--project` 排除，不是缺口，也要说清）
+- 产物路径：`report.md`、批次目录下的 `playwright-report/index.html`、`results-summary.json`
 
 把 `report.md` 的内容作为最终答复的主体呈现给用户，不要只说「报告已生成」。
 
@@ -325,9 +421,33 @@ node "$SKILL/scripts/report.mjs" --run-dir "<runDir>" --json
 
 ### 配置
 
-`e2e.config.json` 控制 baseURL、浏览器、超时、重试、登录等。样例见
+`e2e.config.json` 控制 baseURL、浏览器、超时、重试、登录、异步任务预算等。样例见
 `assets/e2e.config.example.json`。凭据**必须**写成 `${E2E_USERNAME}` / `${E2E_PASSWORD}`
 占位符并通过环境变量注入，**不要把密码写进配置文件、用例文件或报告**。
+配置文件里的相对路径（如 `auth.storageState`）按**配置文件所在目录**解析。
+
+```json
+{
+  "auth": {
+    "enabled": false,
+    "storageState": "auth/site.json"
+  },
+  "asyncTasks": {
+    "submitTimeout": 30000,
+    "completionTimeout": 180000,
+    "pollInterval": 2000
+  },
+  "attempts": { "keep": 10 }
+}
+```
+
+- `auth`：见上文「登录：先确认用哪一种方式」。只复用登录态时 `enabled: false` +
+  `storageState` 即可，不需要任何登录配置。
+- `asyncTasks`：`submitTimeout` 约束提交动作本身，`completionTimeout` 约束生成/排队耗时。
+  默认 30s / 180s。用到 `waitForAsyncTask()` 的用例会**只给自己**放宽超时，
+  不会拖慢其他用例的失败速度。异步任务排队久就调大 `completionTimeout`，
+  不要用 `timeout` 去顶。
+- `attempts.keep`：保留多少个历史执行批次。
 
 配置里的 `headless` 与 `slowMo` 只影响浏览器可见性，不改变「默认有头」这个事实。
 如果脚本文档与实际行为不一致，**以脚本的 `--json` 输出为准**，
@@ -339,12 +459,12 @@ node "$SKILL/scripts/report.mjs" --run-dir "<runDir>" --json
 
 | 文件 | 何时读 |
 | --- | --- |
-| `references/workflow.md` | 需要步骤文件格式、登录态复用、多浏览器等具体做法时 |
+| `references/workflow.md` | 需要步骤文件格式、登录方式（含多步骤与 Google 登录）、重跑与批次、多浏览器等具体做法时 |
 | `references/case-format.md` | 解析用例报错、列名不匹配、需要给用户模板时 |
 | `references/locator-guide.md` | 写 `.spec.ts` 之前 |
 | `references/plan-template.md` | 补全 `plan.md` 时 |
 | `references/report-template.md` | 需要解释报告结构时 |
-| `references/troubleshooting.md` | 任何脚本失败、环境异常、沙箱拒绝时 |
+| `references/troubleshooting.md` | 任何脚本失败、环境异常、沙箱拒绝、Excel 解析失败、异步任务超时时 |
 
 ## 边界
 

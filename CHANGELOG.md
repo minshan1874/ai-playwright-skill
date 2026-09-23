@@ -398,7 +398,7 @@
 - 通过率的分母是实际执行的用例数，未自动化用例不计入，单独列出
 - 不做单元测试、接口测试、性能压测、视觉回归、CI 平台对接
 
-[1.8.0]: https://github.com/minshan1874/ai-playwright-skill/compare/375d256...HEAD
+[1.8.0]: https://github.com/minshan1874/ai-playwright-skill/releases/tag/v1.8.0
 [1.7.0]: https://github.com/minshan1874/ai-playwright-skill/releases/tag/v1.7.0
 [1.6.0]: https://github.com/minshan1874/ai-playwright-skill/compare/c0159f1...7a30c47
 [1.5.0]: https://github.com/minshan1874/ai-playwright-skill/compare/ce232aa...c0159f1
